@@ -1,6 +1,6 @@
 [project]
 name = "zen-pilot"
-version = "0.1.0"
+version = "0.2.0"
 description = "Let any AI agent (Claude Code, Codex, Gemini CLI, LangChain) drive your real Zen browser over MCP, token-efficiently."
 requires-python = ">=3.12"
 dependencies = [

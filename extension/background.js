@@ -223,14 +223,6 @@ async function addToGroup(tabId, s) {
   }
 }
 
-function hostOf(url) {
-  try {
-    return new URL(url).host.replace(/^www\./, "");
-  } catch {
-    return "";
-  }
-}
-
 async function pageSummary(tabId, withOutline) {
   const tab = await browser.tabs.get(tabId);
   if (!/^(https?|file):/.test(tab.url || "")) return `${tab.title} — ${tab.url}`;
@@ -274,12 +266,17 @@ async function handle(method, p) {
         await showOverlay(tabId);
       } catch {}
       const tab = await browser.tabs.get(tabId);
-      return { tabId, groupId, host: hostOf(tab.url), page: await pageSummary(tabId, p.outline !== false) };
+      return { tabId, groupId, url: tab.url, title: tab.title, page: await pageSummary(tabId, p.outline !== false) };
     }
 
     case "tab.close":
       await browser.tabs.remove(+p.tabId);
       return "closed";
+
+    case "tab.info": {
+      const t = await browser.tabs.get(+p.tabId);
+      return { url: t.url, title: t.title };
+    }
 
     case "tab.focus":
       await browser.tabs.update(+p.tabId, { active: true });
@@ -304,8 +301,6 @@ async function handle(method, p) {
       return true;
     }
 
-    case "page.status":
-      return pageSummary(+p.tabId, false);
     case "page.outline":
       return cs(+p.tabId, "outline", p.args);
     case "page.elements":
@@ -444,8 +439,7 @@ async function actSteps(tabId, steps) {
     }
   }
   if (navigated) {
-    const tab = await browser.tabs.get(tabId);
-    lines.push(`navigated → ${tab.url}`);
+    lines.push(`navigated → ${(await browser.tabs.get(tabId)).url}`);
     lines.push(await pageSummary(tabId, true));
   } else {
     const fx = await cs(tabId, "fxEnd").catch((e) => `(effects unavailable: ${e.message})`);
@@ -458,5 +452,6 @@ async function actSteps(tabId, steps) {
   const net = netReport(netSince(tabId, tStart));
   for (const e of net.slice(0, 5)) lines.push(e.startsWith("(") ? e : `ERROR ${e}`);
   if (net.length > 5) lines.push(`ERROR … +${net.length - 5} more failed requests (errors())`);
-  return { out: lines.join("\n").replace(/\nno visible change(?=\nERROR)/, ""), rec };
+  const tab = await browser.tabs.get(tabId);
+  return { out: lines.join("\n").replace(/\nno visible change(?=\nERROR)/, ""), rec, url: tab.url, title: tab.title };
 }

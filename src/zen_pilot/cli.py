@@ -6,11 +6,8 @@ import argparse
 import shutil
 import subprocess
 import sys
-import zipfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-EXT_DIR = ROOT / "extension"
 SERVICE = Path.home() / ".config/systemd/user/zen-pilot.service"
 
 
@@ -26,26 +23,16 @@ def cmd_url(_: argparse.Namespace) -> None:
     print(mcp_url())
 
 
-def cmd_pack(args: argparse.Namespace) -> None:
-    """Zip the extension where the Zen Flatpak can read it (~/Downloads)."""
-    out = Path(args.out).expanduser()
-    out.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
-        for f in sorted(EXT_DIR.rglob("*")):
-            if f.is_file():
-                z.write(f, f.relative_to(EXT_DIR))
-    print(out)
-
-
 def cmd_install(args: argparse.Namespace) -> None:
     """Run the daemon as a systemd user service and register the MCP server with Claude Code and Codex."""
     from .daemon import mcp_url
 
-    uv = shutil.which("uv") or "uv"
+    # the zen-pilot executable running right now: a `uv tool` install, or a checkout's .venv
+    exe = Path(sys.argv[0]).absolute()
     SERVICE.parent.mkdir(parents=True, exist_ok=True)
     SERVICE.write_text(
         "[Unit]\nDescription=zen-pilot: MCP bridge to the Zen browser\n\n"
-        f"[Service]\nExecStart={uv} run --project {ROOT} zen-pilot daemon\nRestart=on-failure\nRestartSec=2\n\n"
+        f"[Service]\nExecStart={exe} daemon\nRestart=on-failure\nRestartSec=2\n\n"
         "[Install]\nWantedBy=default.target\n"
     )
     subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
@@ -63,6 +50,20 @@ def cmd_install(args: argparse.Namespace) -> None:
         subprocess.run(["codex", "mcp", "add", "zen", "--url", url], check=True)
         print("registered with Codex as 'zen'")
     print("MCP URL (for other clients):", url)
+
+
+def cmd_uninstall(_: argparse.Namespace) -> None:
+    """Stop and remove the systemd service and the MCP registrations (sessions and notes are kept)."""
+    if SERVICE.exists():
+        subprocess.run(["systemctl", "--user", "disable", "--now", "zen-pilot.service"], capture_output=True)
+        SERVICE.unlink()
+        subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
+        print(f"removed {SERVICE}")
+    if shutil.which("claude"):
+        subprocess.run(["claude", "mcp", "remove", "-s", "user", "zen"], capture_output=True)
+    if shutil.which("codex"):
+        subprocess.run(["codex", "mcp", "remove", "zen"], capture_output=True)
+    print("removed MCP server 'zen' from Claude Code / Codex")
 
 
 def cmd_call(args: argparse.Namespace) -> None:
@@ -168,12 +169,10 @@ def main() -> None:
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("daemon", help="run the bridge (MCP on :8765/mcp, extension socket on :8765/ext)").set_defaults(fn=cmd_daemon)
     sub.add_parser("url", help="print the MCP URL (includes the access key)").set_defaults(fn=cmd_url)
-    pk = sub.add_parser("pack", help="build the extension zip into ~/Downloads (readable by Flatpak Zen)")
-    pk.add_argument("--out", default="~/Downloads/zen-pilot/zen-pilot.xpi")
-    pk.set_defaults(fn=cmd_pack)
     ins = sub.add_parser("install", help="systemd user service + register with Claude Code / Codex")
     ins.add_argument("--clients", nargs="*", default=["claude", "codex"])
     ins.set_defaults(fn=cmd_install)
+    sub.add_parser("uninstall", help="remove the service and MCP registrations").set_defaults(fn=cmd_uninstall)
     cl = sub.add_parser("call", help="call a tool: zen-pilot call act '{\"steps\":[...]}'")
     cl.add_argument("tool")
     cl.add_argument("json", nargs="?", default="")

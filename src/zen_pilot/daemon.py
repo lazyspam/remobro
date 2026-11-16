@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import logging
 import os
 import secrets
@@ -11,7 +12,7 @@ import time
 import weakref
 from pathlib import Path
 from typing import Any, Literal
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlsplit
 
 import uvicorn
 from mcp.server.fastmcp import Context, FastMCP, Image
@@ -114,23 +115,20 @@ def _clip(text: str) -> str:
     return text
 
 
-def _done(s: Session, tool: str, detail: str, out: str) -> str:
+def _done(s: Session, tool: str, detail: str, out: str, page: dict | None = None) -> str:
+    """Record a tool call on the session; `page` ({url, title} from the extension) tracks visited pages."""
     out = _clip(out)
     s.record(tool, detail, len(out))
-    _track_page(s, out)
+    if page and (page.get("url") or "").startswith("http"):
+        s.pages.pop(page["url"], None)
+        s.pages[page["url"]] = (page.get("title") or "")[:80]
+        s.pages = dict(list(s.pages.items())[-100:])
     store.save(s)
     return out
 
 
-def _track_page(s: Session, out: str) -> None:
-    # page summaries start with "Title — URL"
-    for line in out.splitlines():
-        if " — http" in line:
-            title, url = line.rsplit(" — ", 1)
-            s.pages.pop(url, None)
-            s.pages[url] = title.strip()[:80]
-            s.pages = dict(list(s.pages.items())[-100:])
-            break
+def _host(url: str) -> str:
+    return (urlsplit(url).hostname or "").removeprefix("www.")
 
 
 def _site_hint(s: Session, host: str) -> str:
@@ -175,7 +173,7 @@ async def open_(ctx: Context, url: str = "", tab: str = "", new_tab: bool = True
     if not tab and not new_tab and s.current_tab is not None:
         s.script.append({"do": "goto", "url": url})
         r = await _call("page.act", {"tabId": s.current_tab, "steps": [{"do": "goto", "url": url}]}, 60)
-        return _done(s, "open", url, r["out"])
+        return _done(s, "open", url, r["out"], r)
     if url:
         s.script.append({"do": "goto", "url": url})
     # Agent tabs open in the background so the user can keep browsing (ZEN_PILOT_FOCUS=1 to follow along).
@@ -186,8 +184,8 @@ async def open_(ctx: Context, url: str = "", tab: str = "", new_tab: bool = True
         s.tabs.append(r["tabId"])
     if r.get("groupId") is not None:
         s.group_id = r["groupId"]
-    out = f"tab {r['tabId']}\n{r['page']}{_site_hint(s, r.get('host', ''))}"
-    return _done(s, "open", url or f"tab {tab}", out)
+    out = f"tab {r['tabId']}\n{r['page']}{_site_hint(s, _host(r.get('url') or ''))}"
+    return _done(s, "open", url or f"tab {tab}", out, r)
 
 
 @mcp.tool()
@@ -306,7 +304,7 @@ async def act(ctx: Context, steps: list[dict], tab: int = 0) -> str:
     s.script.extend(r.get("rec") or [])
     s.script = s.script[-2000:]
     detail = ", ".join(f"{st['do']} {st.get('id', st.get('el', st.get('url', st.get('key', ''))))}".strip() for st in steps)
-    return _done(s, "act", detail, r["out"])
+    return _done(s, "act", detail, r["out"], r)
 
 
 @mcp.tool()
@@ -385,19 +383,16 @@ async def session(ctx: Context, op: Literal["start", "resume", "state", "note", 
     if op == "site_note":
         host = key
         if not host and s.current_tab is not None:
-            page = await _call("page.status", {"tabId": s.current_tab})
-            host = page.split(" — ", 1)[-1].split("/")[2] if " — http" in page else ""
+            host = _host((await _call("tab.info", {"tabId": s.current_tab}))["url"] or "")
         if not host or not text:
             raise ToolError("site_note needs text (and key=host if no current tab)")
         store.add_site_note(host, text[:300])
         return f"saved note for {host.removeprefix('www.')}"
     if op == "export":
-        import json as _json
-
         steps = [st for st in s.script if st.get("do") not in ("wait",) or st.get("text")]
         name = text or s.goal
         f = s.dir / "test.json"
-        f.write_text(_json.dumps({"name": name, "session": s.id, "steps": steps}, indent=1))
+        f.write_text(json.dumps({"name": name, "session": s.id, "steps": steps}, indent=1))
         return f"exported {len(steps)} steps to {f}\nrun: zen-pilot replay {f}"
     if op == "end":
         s.status = "ended"

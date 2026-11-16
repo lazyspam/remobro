@@ -66,21 +66,34 @@ zen-pilot replay ~/.local/share/zen-pilot/sessions/<id>/test.json
 
 ## Install
 
-Requirements: Zen (or Firefox) ≥ 128, Python ≥ 3.12, [uv](https://docs.astral.sh/uv/).
+Requirements: Linux with systemd, Zen (or Firefox) ≥ 128. The installer brings [uv](https://docs.astral.sh/uv/)
+and Python if missing.
 
 ```bash
-uv sync
-uv run zen-pilot install      # systemd user service + registers MCP server "zen" in Claude Code and Codex
-uv run zen-pilot pack         # builds ~/Downloads/zen-pilot/zen-pilot.xpi
+curl -fsSL https://github.com/iput-object/zen-pilot/releases/latest/download/install.sh | bash
+# or from a clone:
+./install.sh
 ```
 
-Load the extension in Zen:
+It installs the `zen-pilot` CLI (`uv tool`), starts the bridge as a systemd user service, registers MCP
+server `zen` in Claude Code and Codex, and opens the signed extension in Zen so you can click **Add**.
+Signed releases update themselves in Zen. `./install.sh --uninstall` removes everything except your
+sessions and notes.
 
-- **Quick (temporary, gone after a Zen restart):** `about:debugging` → This Zen → Load Temporary Add-on →
-  pick `~/Downloads/zen-pilot/zen-pilot.xpi`. Or, with Zen started by `scripts/start-zen-remote.sh`:
-  `python3 scripts/dev-load-extension.py`.
-- **Permanent:** sign it as an unlisted add-on (`npx web-ext sign --channel unlisted`, free AMO account),
-  then install the signed `.xpi`.
+While the repo is private, the installer needs `gh auth login` to fetch releases.
+
+### Extension development
+
+```bash
+npx web-ext run -s extension --firefox=flatpak:app.zen_browser.zen   # temp profile, reloads on change
+```
+
+### Releases
+
+Push a tag (`git tag v0.3.0 && git push --tags`). The Release workflow sets that version, builds the
+extension and the Python package, signs the extension as an unlisted add-on when the repo secrets
+`AMO_JWT_ISSUER` / `AMO_JWT_SECRET` are set ([get keys](https://addons.mozilla.org/developers/addon/api/key/)),
+and publishes `zen-pilot.xpi`, `updates.json`, the wheel and `install.sh` to the GitHub release.
 
 The toolbar icon shows `off` when the daemon isn't reachable.
 
@@ -113,7 +126,7 @@ shortcuts (`press` with `repeat`) and `insert` for text editors, guided by `look
 ## Layout
 
 ```
+install.sh   installer · .github/workflows  CI + releases
 extension/   content.js (observe, act, overlay) · background.js (bridge, tabs, screenshots, errors) · hook.js
 src/zen_pilot/  daemon.py (MCP tools) · bridge.py · store.py (sessions, site notes) · cli.py · runner.py (LangChain)
-scripts/     start-zen-remote.sh · dev-load-extension.py
 ```
