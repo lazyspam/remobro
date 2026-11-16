@@ -6,7 +6,7 @@ const DAEMON = "ws://127.0.0.1:8765/ext";
 let ws = null;
 let backoff = 1000;
 
-// tabId -> { sessionId, agent, color, goal, paused }
+// tabId -> { sessionId, agent, color, goal, paused, min }
 const agentTabs = new Map();
 // tabId -> last time a navigation started (status "loading")
 const navStarted = new Map();
@@ -160,8 +160,16 @@ browser.runtime.onMessage.addListener((msg, sender) => {
     return send({ event: "answer", askId: msg.askId, answer: msg.answer });
   }
   if (!t) return;
-  if (msg.ui === "pause") send({ event: "pause", sessionId: t.sessionId, paused: !t.paused });
-  if (msg.ui === "takeover") send({ event: "takeover", sessionId: t.sessionId });
+  // Pause/Resume and minimize apply to every tab of the session, right away (the daemon
+  // learns about pauses too, so the agent's next call waits until you resume).
+  const patch = msg.ui === "pause" ? { paused: !t.paused } : msg.ui === "min" ? { min: !t.min } : null;
+  if (!patch) return;
+  for (const [id, x] of agentTabs) {
+    if (x.sessionId !== t.sessionId) continue;
+    Object.assign(x, patch);
+    showOverlay(id);
+  }
+  if ("paused" in patch) send({ event: "pause", sessionId: t.sessionId, paused: patch.paused });
 });
 
 // ------------------------------------------------------------------ helpers
@@ -199,7 +207,7 @@ async function cs(tabId, cmd, args) {
 async function showOverlay(tabId) {
   const t = agentTabs.get(tabId);
   if (!t) return;
-  await browser.tabs.sendMessage(tabId, { cmd: "ui", args: { on: true, agent: t.agent, color: t.color, goal: t.goal, paused: t.paused } }).catch(() => {});
+  await browser.tabs.sendMessage(tabId, { cmd: "ui", args: { on: true, agent: t.agent, color: t.color, goal: t.goal, paused: t.paused, min: t.min } }).catch(() => {});
 }
 
 const GROUP_COLORS = { orange: "#f76f53", green: "#10a37f", blue: "#4c8bf5", purple: "#a06cd5", cyan: "#22b8cf", pink: "#e64980", yellow: "#f2c94c", red: "#e03131", grey: "#999" };
@@ -255,7 +263,8 @@ async function handle(method, p) {
         tabId = t.id;
       }
       const s = p.session;
-      agentTabs.set(tabId, { sessionId: s.sessionId, agent: s.agent, color: s.color, goal: s.goal, paused: false });
+      const sibling = [...agentTabs.values()].find((x) => x.sessionId === s.sessionId);
+      agentTabs.set(tabId, { sessionId: s.sessionId, agent: s.agent, color: s.color, goal: s.goal, paused: false, min: !!sibling?.min });
       const groupId = p.tab == null ? await addToGroup(tabId, s) : s.groupId;
       if (p.url) {
         await sleep(100);
@@ -407,6 +416,10 @@ async function actSteps(tabId, steps) {
   for (let i = 0; i < steps.length; i++) {
     const s = steps[i];
     const t0 = Date.now();
+    if (agentTabs.get(tabId)?.paused) {
+      lines.push(`⏸ the user paused you before step ${i + 1}; ${steps.length - i} step(s) not run. Wait for the user.`);
+      break;
+    }
     if (NAV_OPS.has(s.do)) {
       await navStep(tabId, s);
       lines.push(`✓ ${s.do}${s.url ? " " + s.url : ""}`);

@@ -106,7 +106,7 @@ async def _unpaused(s: Session) -> None:
     try:
         await asyncio.wait_for(ev.wait(), 300)
     except TimeoutError:
-        raise ToolError("The user paused this session (Pause/Take over in the browser) and has not resumed it. Stop and wait for the user.") from None
+        raise ToolError("The user paused this session in the browser and has not resumed it. Stop and wait for the user.") from None
 
 
 def _clip(text: str) -> str:
@@ -415,11 +415,10 @@ async def on_event(msg: dict) -> None:
     s = store.get(msg.get("sessionId", "")) if msg.get("sessionId") else None
     if not s:
         return
-    if ev in ("pause", "takeover"):
-        paused = True if ev == "takeover" else bool(msg.get("paused"))
+    if ev == "pause":
+        paused = bool(msg.get("paused"))
         s.status = "paused" if paused else "active"
-        if ev == "takeover":
-            s.log.append(f"{time.strftime('%H:%M:%S')} user took over")
+        s.log.append(f"{time.strftime('%H:%M:%S')} user {'paused' if paused else 'resumed'}")
         ev_obj = _resume.setdefault(s.id, asyncio.Event())
         ev_obj.clear() if paused else ev_obj.set()
         store.save(s)

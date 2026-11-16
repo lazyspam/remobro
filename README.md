@@ -18,7 +18,7 @@ Then click **Add** when your browser asks. That's it. Remove with `install.sh --
 Ask your agent: *"use remobro to check the checkout flow on shop.example"*.
 
 - Agent tabs glow in the agent's colour, grouped per task. Your own tabs are never touched.
-- A floating bar shows what it's doing, with **Pause** and **Take over**.
+- A floating bar shows what it's doing. **Pause** hands you the tab; **Resume** lets it continue. Minimize it to a little bubble.
 - For logins, captchas or anything risky (buying, sending, deleting) it asks you first.
 
 ## Testing websites

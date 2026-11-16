@@ -965,7 +965,7 @@
 
   // ---------------------------------------------------------------- overlay UI
   const UI = (() => {
-    let host, root, pill, label, stepEl, askBox, cursor, border, marksLayer, state = { on: false };
+    let host, root, pill, label, stepEl, askBox, cursor, border, bubble, marksLayer, state = { on: false };
     let cx = 0, cy = 0, kindNow = "arrow";
     const HOT = { arrow: [3.7, 1.8], hand: [9.5, 3.5], text: [11, 11] }; // hotspot per cursor shape
     const watching = () => state.on && !state.fast && !document.hidden;
@@ -1048,6 +1048,24 @@
       .step{opacity:.8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
       button{font:inherit;color:#fff;background:#ffffff1f;border:0;border-radius:999px;padding:3px 10px;cursor:pointer}
       button:hover{background:#ffffff38}
+      button.icon{padding:3px 8px;line-height:1;opacity:.75}
+      button.icon:hover{opacity:1}
+      .bubble{position:fixed;top:12px;right:14px;z-index:2147483647;width:34px;height:34px;border-radius:50%;
+        display:none;place-items:center;cursor:pointer;pointer-events:auto;user-select:none;
+        font:700 15px/1 system-ui,sans-serif;color:#141414;background:var(--c);
+        box-shadow:0 4px 14px rgba(0,0,0,.35),inset 0 -3px 0 rgba(0,0,0,.12);
+        animation:bob 3s ease-in-out infinite;transition:transform .15s}
+      .bubble:hover{transform:scale(1.12)}
+      .bubble::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:2px solid var(--c);
+        animation:ping 1.8s ease-out infinite}
+      .bubble.paused{background:#9a9a9a;animation:none}
+      .bubble svg{width:14px;height:14px}
+      .pill.paused{border-color:#777}
+      .cursor.away{display:none}
+      .bubble.paused::after{display:none}
+      @keyframes bob{0%,100%{translate:0 0}50%{translate:0 -3px}}
+      @keyframes ping{0%{opacity:.7;transform:scale(.9)}100%{opacity:0;transform:scale(1.6)}}
+      @media (prefers-reduced-motion:reduce){.bubble,.bubble::after{animation:none}}
       .ask{position:fixed;top:52px;left:50%;transform:translateX(-50%);z-index:2147483647;
         font:14px/1.45 system-ui,sans-serif;color:#fff;background:rgba(22,22,26,.96);border:1px solid var(--c);
         border-radius:14px;padding:12px 14px;width:min(460px,90vw);box-shadow:0 10px 30px rgba(0,0,0,.4);pointer-events:auto}
@@ -1080,7 +1098,8 @@
       root = host.attachShadow({ mode: "closed" });
       root.innerHTML = `<style>${css}</style><div class="border"></div>
         <div class="pill"><span class="dot"></span><span class="lbl"></span><span class="step"></span>
-        <button data-a="pause">Pause</button><button data-a="takeover" title="Stop the agent and give control back to you">Take over</button></div>
+        <button data-a="pause">Pause</button><button data-a="min" class="icon" title="Minimize">–</button></div>
+        <div class="bubble" data-a="min"></div>
         <div class="cursor" data-k="arrow">
           <svg class="arrow" viewBox="0 0 24 24"><path d="M4 2 L4 20 L9 15 L13 23 L16 21.5 L12 13.8 L19 13.5 Z" fill="var(--c)" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg>
           <svg class="hand" viewBox="0 0 24 24"><path d="M9 11.5V4.2a1.6 1.6 0 0 1 3.2 0V10h.4V8.4a1.6 1.6 0 0 1 3.2 0V10h.4V9.2a1.6 1.6 0 0 1 3.2 0v6.1c0 3.9-2.6 6.7-6.6 6.7-2.6 0-4.3-1.1-5.5-3.2L4 14.3a1.5 1.5 0 0 1 2.5-1.7L9 15.2z" fill="var(--c)" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/></svg>
@@ -1092,6 +1111,7 @@
       label = root.querySelector(".lbl");
       stepEl = root.querySelector(".step");
       cursor = root.querySelector(".cursor");
+      bubble = root.querySelector(".bubble");
       // continue from where the cursor was on the previous page
       try {
         [cx, cy] = JSON.parse(sessionStorage.getItem("__zp_cursor") || "null") || [innerWidth * 0.62, innerHeight * 0.3];
@@ -1099,8 +1119,8 @@
         [cx, cy] = [innerWidth * 0.62, innerHeight * 0.3];
       }
       place(cx, cy);
-      pill.addEventListener("click", (e) => {
-        const a = e.target.dataset?.a;
+      root.addEventListener("click", (e) => {
+        const a = e.target.closest?.("[data-a]")?.dataset.a;
         if (a) browser.runtime.sendMessage({ ui: a });
       });
       document.documentElement.appendChild(host);
@@ -1116,7 +1136,15 @@
       root.querySelector("style").textContent = css.replace(/var\(--c\)/g, state.color || "#f76f53");
       border.className = "border" + (state.paused ? " paused" : "");
       pill.className = "pill" + (state.paused ? " paused" : "");
-      label.textContent = `${state.agent || "AI"} ${state.paused ? "paused" : "is driving"}`;
+      const who = state.agent || "AI";
+      label.textContent = state.paused ? `${who} paused · your turn` : `${who} is driving`;
+      pill.style.display = state.min ? "none" : "";
+      bubble.style.display = state.min ? "grid" : "none";
+      bubble.className = "bubble" + (state.paused ? " paused" : "");
+      if (state.paused) bubble.innerHTML = `<svg viewBox="0 0 14 14"><rect x="2.5" y="2" width="3.2" height="10" rx="1.2" fill="#141414"/><rect x="8.3" y="2" width="3.2" height="10" rx="1.2" fill="#141414"/></svg>`;
+      else bubble.textContent = who[0].toUpperCase();
+      cursor.classList.toggle("away", !!state.paused); // your turn: hide the agent's cursor
+      bubble.title = `${label.textContent}${state.step ? " · " + state.step : ""}\nclick to expand`;
       root.querySelector(".tag").textContent = state.agent || "AI";
       stepEl.textContent = state.step ? "· " + state.step : state.goal ? "· " + state.goal : "";
       pill.querySelector("[data-a=pause]").textContent = state.paused ? "Resume" : "Pause";
@@ -1214,7 +1242,7 @@
         if (h && !st) {
           st = document.createElement("style");
           st.className = "hide";
-          st.textContent = ".border,.pill,.cursor,.hl,.ask,.ripple{display:none!important}";
+          st.textContent = ".border,.pill,.bubble,.cursor,.hl,.ask,.ripple{display:none!important}";
           root.appendChild(st);
         } else if (!h) st?.remove();
         // wait until the change is painted (rAF is paused in background tabs: cap the wait)
