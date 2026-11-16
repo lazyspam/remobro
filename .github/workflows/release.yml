@@ -41,7 +41,7 @@ jobs:
         run: |
           uv sync --frozen --no-dev
           uv run --frozen --with pyinstaller pyinstaller --onefile --name remobro --distpath dist \
-            --collect-submodules uvicorn --collect-submodules remobro --copy-metadata mcp \
+            --collect-submodules uvicorn --collect-submodules remobro --copy-metadata mcp --copy-metadata remobro \
             src/remobro/__main__.py
           mv dist/remobro dist/remobro-linux-${{ matrix.arch }}
       - name: Smoke test

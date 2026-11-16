@@ -52,6 +52,17 @@ def cmd_install(args: argparse.Namespace) -> None:
     print("MCP URL (for other clients):", url)
 
 
+def cmd_update(args: argparse.Namespace) -> None:
+    """Update remobro to the latest release (the binary or uv install, the Chromium extension files, the bridge)."""
+    from . import update
+
+    if args.auto:
+        update.set_auto(args.auto == "on")
+        print(f"automatic updates {args.auto}" + (" (the bridge checks once a day)" if args.auto == "on" else ""))
+        return
+    sys.exit(update.run(check_only=args.check, quiet=args.quiet))
+
+
 def cmd_uninstall(_: argparse.Namespace) -> None:
     """Stop and remove the systemd service and the MCP registrations (sessions and notes are kept)."""
     if SERVICE.exists():
@@ -173,6 +184,12 @@ def main() -> None:
     ins.add_argument("--clients", nargs="*", default=["claude", "codex"])
     ins.set_defaults(fn=cmd_install)
     sub.add_parser("uninstall", help="remove the service and MCP registrations").set_defaults(fn=cmd_uninstall)
+    up = sub.add_parser("update", help="update to the latest release")
+    up.add_argument("--check", action="store_true", help="only report whether an update is available")
+    up.add_argument("--auto", choices=["on", "off"], help="let the bridge install updates by itself (daily check)")
+    up.add_argument("--quiet", action="store_true")
+    up.set_defaults(fn=cmd_update)
+    sub.add_parser("version", help="print the installed version").set_defaults(fn=lambda _: print(__import__("remobro.update").update.current_version()))
     cl = sub.add_parser("call", help="call a tool: remobro call act '{\"steps\":[...]}'")
     cl.add_argument("tool")
     cl.add_argument("json", nargs="?", default="")

@@ -42,7 +42,7 @@ jobs:
       - name: Binary build + smoke test
         run: |
           uv run --with pyinstaller pyinstaller --onefile --name remobro --distpath bin \
-            --collect-submodules uvicorn --collect-submodules remobro --copy-metadata mcp \
+            --collect-submodules uvicorn --collect-submodules remobro --copy-metadata mcp --copy-metadata remobro \
             src/remobro/__main__.py
           bin/remobro --help
       - name: Installer syntax

@@ -9,6 +9,8 @@ import re
 import logging
 import os
 import secrets
+import subprocess
+import sys
 import time
 import weakref
 from pathlib import Path
@@ -21,6 +23,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 from starlette.routing import WebSocketRoute
 
 from .bridge import Bridge, BridgeError, Conn
+from . import update
 from .store import DATA_DIR, Session, Store
 
 log = logging.getLogger("remobro")
@@ -430,7 +433,10 @@ async def session(ctx: Context, op: Literal["start", "resume", "state", "note", 
             _bound[ctx.session] = s.id
         store.save(s)
         await _ui(s, {"goal": s.goal})
-        return f"session {s.id} started: {s.goal}"
+        note = ""
+        if UPDATE["latest"]:
+            note = f"\n(remobro {UPDATE['latest']} is available: tell the user once that `remobro update` installs it)"
+        return f"session {s.id} started: {s.goal}{note}"
     if op == "resume":
         s = store.get(id)
         if not s:
@@ -505,6 +511,51 @@ async def on_event(msg: dict, conn: Conn) -> None:
 bridge.on_event = on_event
 
 
+# ---------------------------------------------------------------------- updates
+VERSION = update.current_version()
+UPDATE: dict[str, Any] = {"latest": None}
+_reloaded: set[str] = set()
+
+
+async def on_connect(conn: Conn) -> None:
+    # An unpacked Chromium extension older than this bridge: its files were just replaced by
+    # `remobro update`, so ask it to reload them (once, so a stale folder can't loop).
+    if conn.install_type == "development" and update.newer(VERSION, conn.version) and conn.key not in _reloaded:
+        _reloaded.add(conn.key)
+        log.info("asking %s to reload its extension (%s → %s)", conn.name, conn.version, VERSION)
+        await bridge.call("ext.reload", {}, 10, conn)
+        return
+    if UPDATE["latest"]:
+        await bridge.call("ext.notice", {"update": UPDATE["latest"]}, 10, conn)
+
+
+bridge.on_connect = on_connect
+
+
+async def update_loop() -> None:
+    """Once a day: is there a newer release? Show it in the browsers, or install it (auto mode)."""
+    await asyncio.sleep(30)
+    while True:
+        try:
+            latest = await asyncio.to_thread(update.latest_version)
+            if update.newer(latest, VERSION):
+                UPDATE["latest"] = latest
+                log.info("remobro %s is available (running %s)", latest, VERSION)
+                if update.auto_enabled():
+                    log.info("auto-update: installing %s", latest)
+                    # detached, so restarting this service at the end doesn't cut it off
+                    exe = sys.executable if getattr(sys, "frozen", False) else sys.argv[0]
+                    subprocess.Popen([exe, "update", "--quiet"], start_new_session=True)
+                for c in list(bridge.conns.values()):
+                    try:
+                        await bridge.call("ext.notice", {"update": latest}, 10, c)
+                    except BridgeError:
+                        pass
+        except Exception as e:  # noqa: BLE001 - offline etc.; try again tomorrow
+            log.info("update check failed: %s", e)
+        await asyncio.sleep(24 * 3600)
+
+
 # ---------------------------------------------------------------------- app
 class KeyAuth:
     """Require ?key=… or Authorization: Bearer … on /mcp (web pages can reach localhost too)."""
@@ -513,6 +564,9 @@ class KeyAuth:
         self.app, self.key = app, key
 
     async def __call__(self, scope, receive, send):
+        if scope["type"] == "lifespan" and not getattr(self, "_started", False):
+            self._started = True
+            asyncio.create_task(update_loop())
         if scope["type"] == "http" and scope["path"].startswith("/mcp"):
             qs = parse_qs(scope.get("query_string", b"").decode())
             auth = dict(scope.get("headers") or []).get(b"authorization", b"").decode()
@@ -540,6 +594,6 @@ def serve() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     app = mcp.streamable_http_app()
     app.router.routes.append(WebSocketRoute("/ext", bridge.endpoint))
-    log.info("data dir %s", DATA_DIR)
+    log.info("remobro %s, data dir %s", VERSION, DATA_DIR)
     log.info("MCP endpoint: %s", mcp_url())
     uvicorn.run(KeyAuth(app, get_key()), host="127.0.0.1", port=PORT, log_level="warning", ws="websockets-sansio")

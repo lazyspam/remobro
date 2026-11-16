@@ -105,7 +105,11 @@ async function identity() {
     instance = crypto.randomUUID();
     await B.storage.local.set({ instance });
   }
-  return { browser: name, instance };
+  let installType = "";
+  try {
+    installType = (await B.management.getSelf()).installType; // "development" = loaded unpacked
+  } catch {}
+  return { browser: name, instance, installType };
 }
 
 function connect() {
@@ -363,6 +367,16 @@ async function handle(method, p) {
       const tab = await B.tabs.get(tabId);
       return { tabId, groupId, url: tab.url, title: tab.title, page: await pageSummary(tabId, p.outline !== false) };
     }
+
+    // after `remobro update` replaced the unpacked (Chromium) extension's files
+    case "ext.reload":
+      setTimeout(() => B.runtime.reload(), 200);
+      return true;
+    case "ext.notice":
+      ACTION.setBadgeText({ text: "↑" });
+      ACTION.setBadgeBackgroundColor({ color: "#4c8bf5" });
+      ACTION.setTitle({ title: `remobro ${p.update} is available: run "remobro update"` });
+      return true;
 
     case "tab.close":
       await B.tabs.remove(+p.tabId);

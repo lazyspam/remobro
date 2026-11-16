@@ -15,6 +15,13 @@ Zen/Firefox: click **Add** when it asks. Chrome & co: the installer opens `chrom
 turn on **Developer mode** → **Load unpacked** → pick `~/Downloads/remobro/chromium`.
 Remove with `install.sh --uninstall`.
 
+## Updates
+
+`remobro update` installs the latest release: the command, the bridge, and the Chrome extension
+(which reloads itself). Zen/Firefox update the extension on their own. The bridge checks once a day
+and shows **↑** on the toolbar icon when there's something new; `remobro update --auto on` lets it
+install updates by itself.
+
 ## Use
 
 Ask your agent: *"use remobro to check the checkout flow on shop.example"*.

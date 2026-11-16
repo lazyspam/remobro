@@ -33,6 +33,7 @@ class Conn:
     key: str  # stable per browser profile
     name: str  # "Zen", "Chrome", "Brave", …
     version: str = ""
+    install_type: str = ""  # "development" = loaded unpacked (Chromium), "normal" = store/signed
     focused: float = field(default_factory=time.time)
     pending: dict[int, asyncio.Future] = field(default_factory=dict)
 
@@ -43,6 +44,7 @@ class Bridge:
         self.ids = itertools.count(1)
         self.changed = asyncio.Event()
         self.on_event: Callable[[dict, Conn], Awaitable[None]] | None = None
+        self.on_connect: Callable[[Conn], Awaitable[None]] | None = None
 
     # ------------------------------------------------------------------ connections
     async def endpoint(self, ws: WebSocket) -> None:
@@ -56,7 +58,7 @@ class Bridge:
             await ws.close()
             return
         key = str(hello.get("instance") or ws.headers.get("origin"))
-        conn = Conn(ws, key, str(hello.get("browser") or "Browser"), str(hello.get("version") or ""))
+        conn = Conn(ws, key, str(hello.get("browser") or "Browser"), str(hello.get("version") or ""), str(hello.get("installType") or ""))
         old = self.conns.get(key)
         self.conns[key] = conn
         if old is not None:  # same browser reconnected (extension reload, MV3 restart)
@@ -66,7 +68,9 @@ class Bridge:
             except Exception:
                 pass
         self.changed.set()
-        log.info("%s connected (%s)", conn.name, key[:8])
+        log.info("%s connected (%s, extension %s)", conn.name, key[:8], conn.version)
+        if self.on_connect:
+            asyncio.create_task(self.on_connect(conn))
         try:
             while True:
                 msg = await ws.receive_json()
