@@ -1,6 +1,6 @@
-"""zen-pilot runner: drive Zen with any LLM through LangChain (API keys or local Ollama).
+"""remobro runner: drive your browser with any LLM through LangChain (API keys or local Ollama).
 
-Claude Code / Codex users don't need this: they talk to the zen-pilot MCP server directly
+Claude Code / Codex users don't need this: they talk to the remobro MCP server directly
 with their subscription. This runner connects to the same daemon, so the model can be
 anything `init_chat_model` understands:
 
@@ -8,9 +8,9 @@ anything `init_chat_model` understands:
     ollama:qwen3:14b              openrouter:<model>   groq:<model>   deepseek:<model>
 
 Usage:
-    zen-pilot run "find the cheapest 1TB NVMe on amazon.de"
-    zen-pilot run                    # interactive, keeps context between tasks
-    zen-pilot run -m ollama:qwen3:14b "..."
+    remobro run "find the cheapest 1TB NVMe on amazon.de"
+    remobro run                    # interactive, keeps context between tasks
+    remobro run -m ollama:qwen3:14b "..."
 """
 
 from __future__ import annotations
@@ -37,12 +37,12 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 load_dotenv()
 
-DEFAULT_MODEL = os.getenv("ZEN_AGENT_MODEL", "anthropic:claude-sonnet-5-5")
+DEFAULT_MODEL = os.getenv("REMOBRO_MODEL", "anthropic:claude-sonnet-5-5")
 # Observation tools whose old results go stale after the page changes.
 OBSERVATION_TOOLS = {"outline", "elements", "find", "read", "look"}
 
 SYSTEM_PROMPT = """\
-You operate the user's Zen web browser through the zen tools; follow their usage notes. \
+You operate the user's web browser through the remobro tools; follow their usage notes. \
 Older page observations in this conversation may be replaced with a placeholder; they are stale. \
 When done, reply with a short answer: the result and anything the user must do next."""
 
@@ -152,10 +152,10 @@ async def run_task(agent, task: str, thread_id: str, usage: dict[str, int], verb
 
 async def main_async(args: argparse.Namespace) -> None:
     model, middleware = build_model(args.model)
-    client = MultiServerMCPClient({"zen": mcp_connection()})
+    client = MultiServerMCPClient({"remobro": mcp_connection()})
 
     # One persistent MCP session: the browser connection is reused across steps.
-    async with client.session("zen") as session:
+    async with client.session("remobro") as session:
         tools = await load_mcp_tools(session)
 
         agent = create_agent(
@@ -167,8 +167,8 @@ async def main_async(args: argparse.Namespace) -> None:
         )
 
         usage = {"in": 0, "out": 0, "cached": 0}
-        thread = f"zen-{int(time.time())}"
-        print(f"zen-pilot runner · model {args.model} · {len(tools)} tools")
+        thread = f"remobro-{int(time.time())}"
+        print(f"remobro runner · model {args.model} · {len(tools)} tools")
 
         async def one(task: str) -> None:
             t0 = time.time()
@@ -183,13 +183,13 @@ async def main_async(args: argparse.Namespace) -> None:
         print("Type a task (empty line or Ctrl+D to quit, /new for a fresh context).")
         while True:
             try:
-                task = (await asyncio.to_thread(input, "\nzen> ")).strip()
+                task = (await asyncio.to_thread(input, "\nremobro> ")).strip()
             except (EOFError, KeyboardInterrupt):
                 break
             if not task:
                 break
             if task == "/new":
-                thread = f"zen-{int(time.time())}"
+                thread = f"remobro-{int(time.time())}"
                 print("New context.")
                 continue
             try:
@@ -199,7 +199,7 @@ async def main_async(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(prog="zen-pilot run", description="Control Zen with any LLM (LangChain + zen-pilot MCP).")
+    p = argparse.ArgumentParser(prog="remobro run", description="Control your browser with any LLM (LangChain + remobro MCP).")
     p.add_argument("task", nargs="*", help="task to run; omit for interactive mode")
     p.add_argument("-m", "--model", default=DEFAULT_MODEL,
                    help=f"provider:model for init_chat_model (default {DEFAULT_MODEL})")

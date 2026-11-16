@@ -1,16 +1,16 @@
-# Zen Pilot
+# remobro
 
-Let any AI agent drive your **real, already-open Zen browser**: Claude Code and Codex on
+Let any AI agent drive your **real, already-open browser** (Zen, Firefox): Claude Code and Codex on
 your existing subscriptions, Gemini CLI, Cursor, or any model through LangChain (API keys
 or local Ollama). Built for two jobs: browsing for you, and end-to-end testing websites.
 
 ```
- Claude Code ─┐                        ┌─────────── Zen (your real browser) ───────────┐
- Codex CLI ───┼─ MCP ─► zen-pilot ◄═ws═╪═► extension background ─► content scripts      │
+ Claude Code ─┐                        ┌───────────── your real browser ───────────────┐
+ Codex CLI ───┼─ MCP ─► remobro   ◄═ws═╪═► extension background ─► content scripts      │
  Gemini CLI ──┤  http   daemon         │     tabs, screenshots,     observe · act ·      │
  LangChain ───┘           │            │     network errors         overlay UI           │
                           ▼            └───────────────────────────────────────────────┘
-               ~/.local/share/zen-pilot   sessions · site notes · screenshots · tests
+               ~/.local/share/remobro     sessions · site notes · screenshots · tests
 ```
 
 - **Works beside you.** Agents get their own tabs, in a tab group per session (`Claude · goal`),
@@ -55,10 +55,10 @@ ERROR HTTP 500 POST example.com/api/session
 - Console errors, uncaught exceptions, failed resources and first-party HTTP ≥ 400 responses show
   up as `ERROR` lines in every `act` result (third-party noise is counted, not listed); `errors()` lists all.
 - Every session records its steps with label locators. `session(op="export")` writes a test file, and
-  `zen-pilot replay test.json` replays it **without any LLM** (zero tokens, exit code 1 on failure).
+  `remobro replay test.json` replays it **without any LLM** (zero tokens, exit code 1 on failure).
 
 ```bash
-zen-pilot replay ~/.local/share/zen-pilot/sessions/<id>/test.json
+remobro replay ~/.local/share/remobro/sessions/<id>/test.json
 # ok   open https://the-internet.herokuapp.com/login
 # ok   7 step(s)
 # PASSED 8 steps in 4.1s
@@ -70,13 +70,13 @@ Requirements: Linux with systemd, Zen (or Firefox) ≥ 128. The installer brings
 and Python if missing.
 
 ```bash
-curl -fsSL https://github.com/iput-object/zen-pilot/releases/latest/download/install.sh | bash
+curl -fsSL https://github.com/iput-object/remobro/releases/latest/download/install.sh | bash
 # or from a clone:
 ./install.sh
 ```
 
-It installs the `zen-pilot` CLI (`uv tool`), starts the bridge as a systemd user service, registers MCP
-server `zen` in Claude Code and Codex, and opens the signed extension in Zen so you can click **Add**.
+It installs the `remobro` CLI (`uv tool`), starts the bridge as a systemd user service, registers MCP
+server `remobro` in Claude Code and Codex, and opens the signed extension in Zen so you can click **Add**.
 Signed releases update themselves in Zen. `./install.sh --uninstall` removes everything except your
 sessions and notes.
 
@@ -93,31 +93,31 @@ npx web-ext run -s extension --firefox=flatpak:app.zen_browser.zen   # temp prof
 Push a tag (`git tag v0.3.0 && git push --tags`). The Release workflow sets that version, builds the
 extension and the Python package, signs the extension as an unlisted add-on when the repo secrets
 `AMO_JWT_ISSUER` / `AMO_JWT_SECRET` are set ([get keys](https://addons.mozilla.org/developers/addon/api/key/)),
-and publishes `zen-pilot.xpi`, `updates.json`, the wheel and `install.sh` to the GitHub release.
+and publishes `remobro.xpi`, `updates.json`, the wheel and `install.sh` to the GitHub release.
 
 The toolbar icon shows `off` when the daemon isn't reachable.
 
-Other MCP clients: `uv run zen-pilot url` prints the endpoint (`http://127.0.0.1:8765/mcp?key=…`).
+Other MCP clients: `uv run remobro url` prints the endpoint (`http://127.0.0.1:8765/mcp?key=…`).
 
 ## Use
 
-In Claude Code / Codex just ask: *"use the zen browser to …"*. From a shell:
+In Claude Code / Codex just ask: *"use remobro to …"*. From a shell:
 
 ```bash
-zen-pilot call session '{"op":"start","text":"check checkout flow"}'
-zen-pilot call open '{"url":"https://shop.example"}'
-zen-pilot call act '{"steps":[{"do":"click","el":"Add to cart"},{"do":"expect","text":"1 item"}]}'
-zen-pilot call session '{"op":"export"}'
+remobro call session '{"op":"start","text":"check checkout flow"}'
+remobro call open '{"url":"https://shop.example"}'
+remobro call act '{"steps":[{"do":"click","el":"Add to cart"},{"do":"expect","text":"1 item"}]}'
+remobro call session '{"op":"export"}'
 ```
 
-Any model via LangChain: `uv sync --extra runner && uv run zen-pilot run -m ollama:qwen3:14b "…"`.
+Any model via LangChain: `uv sync --extra runner && uv run remobro run -m ollama:qwen3:14b "…"`.
 
 Canvas apps (Figma, maps) work through coordinate steps (`click_at`, `drag`, `move`), keyboard
 shortcuts (`press` with `repeat`) and `insert` for text editors, guided by `look("viewport")`.
 
 ## Safety
 
-- The MCP endpoint needs a random key (`~/.config/zen-pilot/key`); the extension socket accepts only
+- The MCP endpoint needs a random key (`~/.config/remobro/key`); the extension socket accepts only
   `moz-extension://` origins, so websites can't talk to the bridge.
 - Page text is treated as data, never instructions. Agents must `ask_user(kind="confirm")` before
   buying, sending, deleting or changing accounts, and hand logins/captchas to you.
@@ -128,5 +128,5 @@ shortcuts (`press` with `repeat`) and `insert` for text editors, guided by `look
 ```
 install.sh   installer · .github/workflows  CI + releases
 extension/   content.js (observe, act, overlay) · background.js (bridge, tabs, screenshots, errors) · hook.js
-src/zen_pilot/  daemon.py (MCP tools) · bridge.py · store.py (sessions, site notes) · cli.py · runner.py (LangChain)
+src/remobro/  daemon.py (MCP tools) · bridge.py · store.py (sessions, site notes) · cli.py · runner.py (LangChain)
 ```

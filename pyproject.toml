@@ -1,7 +1,7 @@
 [project]
-name = "zen-pilot"
+name = "remobro"
 version = "0.2.0"
-description = "Let any AI agent (Claude Code, Codex, Gemini CLI, LangChain) drive your real Zen browser over MCP, token-efficiently."
+description = "Let any AI agent (Claude Code, Codex, Gemini CLI, LangChain) drive your real browser over MCP, token-efficiently."
 requires-python = ">=3.12"
 dependencies = [
     "mcp>=1.30.0",
@@ -23,7 +23,7 @@ runner = [
 ]
 
 [project.scripts]
-zen-pilot = "zen_pilot.cli:main"
+remobro = "remobro.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.13.6,<0.14.0"]

@@ -1,4 +1,4 @@
-"""WebSocket bridge to the Zen Pilot extension (JSON-RPC style, extension is the server-side of calls)."""
+"""WebSocket bridge to the remobro extension (JSON-RPC style, extension is the server-side of calls)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from typing import Any
 
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
-log = logging.getLogger("zen_pilot.bridge")
+log = logging.getLogger("remobro.bridge")
 
 
 class BridgeError(RuntimeError):
@@ -58,7 +58,7 @@ class Bridge:
                 self.connected.clear()
                 for fut in self.pending.values():
                     if not fut.done():
-                        fut.set_result({"error": "Zen extension disconnected"})
+                        fut.set_result({"error": "remobro extension disconnected"})
                 self.pending.clear()
                 log.info("extension disconnected")
 
@@ -68,7 +68,7 @@ class Bridge:
                 await asyncio.wait_for(self.connected.wait(), 4)
             except TimeoutError:
                 raise BridgeError(
-                    "Zen is not connected. Open Zen and make sure the Zen Pilot extension is installed and enabled."
+                    "No browser connected. Open your browser and make sure the remobro extension is installed and enabled."
                 ) from None
         assert self.ws is not None
         rid = next(self.ids)
@@ -79,7 +79,7 @@ class Bridge:
             msg = await asyncio.wait_for(fut, timeout)
         except TimeoutError:
             self.pending.pop(rid, None)
-            raise BridgeError(f"Zen did not answer {method} within {timeout:.0f}s") from None
+            raise BridgeError(f"The browser did not answer {method} within {timeout:.0f}s") from None
         if "error" in msg:
             raise BridgeError(msg["error"])
         return msg.get("result")

@@ -13,7 +13,12 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-DATA_DIR = Path(os.environ.get("ZEN_PILOT_HOME", Path.home() / ".local/share/zen-pilot"))
+DATA_DIR = Path(os.environ.get("REMOBRO_HOME", Path.home() / ".local/share/remobro"))
+
+# data from before the rename (zen-pilot) moves over once
+_OLD_DIR = Path.home() / ".local/share/zen-pilot"
+if "REMOBRO_HOME" not in os.environ and _OLD_DIR.is_dir() and not DATA_DIR.exists():
+    _OLD_DIR.rename(DATA_DIR)
 
 
 @dataclass

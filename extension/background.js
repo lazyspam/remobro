@@ -1,4 +1,4 @@
-// Zen Pilot background: WebSocket link to the local zen-pilot daemon, tab management,
+// remobro background: WebSocket link to the local remobro daemon, tab management,
 // screenshots, and step-by-step action runs that survive page navigations.
 "use strict";
 
@@ -105,7 +105,7 @@ function send(obj) {
 function badge(state) {
   browser.browserAction.setBadgeText({ text: state === "on" ? "" : "off" });
   browser.browserAction.setBadgeBackgroundColor({ color: "#888" });
-  browser.browserAction.setTitle({ title: state === "on" ? "Zen Pilot: connected to agent bridge" : "Zen Pilot: daemon not running (zen-pilot daemon)" });
+  browser.browserAction.setTitle({ title: state === "on" ? "remobro: connected to agent bridge" : "remobro: daemon not running (remobro daemon)" });
 }
 connect();
 

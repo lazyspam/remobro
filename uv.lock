@@ -1421,6 +1421,44 @@ wheels = [
 ]
 
 [[package]]
+name = "remobro"
+version = "0.2.0"
+source = { editable = "." }
+dependencies = [
+    { name = "mcp" },
+    { name = "starlette" },
+    { name = "uvicorn" },
+    { name = "websockets" },
+]
+
+[package.optional-dependencies]
+runner = [
+    { name = "langchain" },
+    { name = "langchain-anthropic" },
+    { name = "langchain-google-genai" },
+    { name = "langchain-mcp-adapters" },
+    { name = "langchain-ollama" },
+    { name = "langchain-openai" },
+    { name = "python-dotenv" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "langchain", marker = "extra == 'runner'", specifier = ">=1.5.0" },
+    { name = "langchain-anthropic", marker = "extra == 'runner'", specifier = ">=1.7.10" },
+    { name = "langchain-google-genai", marker = "extra == 'runner'", specifier = ">=4.5.0" },
+    { name = "langchain-mcp-adapters", marker = "extra == 'runner'", specifier = ">=0.3.2" },
+    { name = "langchain-ollama", marker = "extra == 'runner'", specifier = ">=1.1.0" },
+    { name = "langchain-openai", marker = "extra == 'runner'", specifier = ">=1.8.0" },
+    { name = "mcp", specifier = ">=1.30.0" },
+    { name = "python-dotenv", marker = "extra == 'runner'", specifier = ">=1.2.4" },
+    { name = "starlette", specifier = ">=1.10.0" },
+    { name = "uvicorn", specifier = ">=0.54.0" },
+    { name = "websockets", specifier = ">=17.4" },
+]
+provides-extras = ["runner"]
+
+[[package]]
 name = "requests"
 version = "2.34.2"
 source = { registry = "https://pypi.org/simple" }
@@ -2047,44 +2085,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/1e/aa/0dbefd42116b6bd2fc96cbcf7836ff6d4241b1fead407ced196a5cb9b7a8/xxhash-4.1.0-pp312-pypy312_pp80-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:149940775d6a279baed5d90f1166a6c549443a3d4e922b3d6ded8bc6f491aae1", size = 47870, upload-time = "2026-11-09T13:47:28.986Z" },
     { url = "https://files.pythonhosted.org/packages/7b/85/97067532c82bee004bad078f5537a70de8ebc2b0f72e5e32ed489d033e31/xxhash-4.1.0-pp312-pypy312_pp80-win_amd64.whl", hash = "sha256:9917577060294726864d10ad8953f797e0c5b601ce0d95c82eaeba57df8ddae9", size = 95367, upload-time = "2026-11-09T13:47:31.937Z" },
 ]
-
-[[package]]
-name = "zen-pilot"
-version = "0.2.0"
-source = { editable = "." }
-dependencies = [
-    { name = "mcp" },
-    { name = "starlette" },
-    { name = "uvicorn" },
-    { name = "websockets" },
-]
-
-[package.optional-dependencies]
-runner = [
-    { name = "langchain" },
-    { name = "langchain-anthropic" },
-    { name = "langchain-google-genai" },
-    { name = "langchain-mcp-adapters" },
-    { name = "langchain-ollama" },
-    { name = "langchain-openai" },
-    { name = "python-dotenv" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "langchain", marker = "extra == 'runner'", specifier = ">=1.5.0" },
-    { name = "langchain-anthropic", marker = "extra == 'runner'", specifier = ">=1.7.10" },
-    { name = "langchain-google-genai", marker = "extra == 'runner'", specifier = ">=4.5.0" },
-    { name = "langchain-mcp-adapters", marker = "extra == 'runner'", specifier = ">=0.3.2" },
-    { name = "langchain-ollama", marker = "extra == 'runner'", specifier = ">=1.1.0" },
-    { name = "langchain-openai", marker = "extra == 'runner'", specifier = ">=1.8.0" },
-    { name = "mcp", specifier = ">=1.30.0" },
-    { name = "python-dotenv", marker = "extra == 'runner'", specifier = ">=1.2.4" },
-    { name = "starlette", specifier = ">=1.10.0" },
-    { name = "uvicorn", specifier = ">=0.54.0" },
-    { name = "websockets", specifier = ">=17.4" },
-]
-provides-extras = ["runner"]
 
 [[package]]
 name = "zstandard"

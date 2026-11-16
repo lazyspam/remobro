@@ -1,4 +1,4 @@
-"""zen-pilot daemon: MCP server (streamable HTTP) for agents + WebSocket for the Zen extension."""
+"""remobro daemon: MCP server (streamable HTTP) for agents + WebSocket for the browser extension."""
 
 from __future__ import annotations
 
@@ -22,14 +22,14 @@ from starlette.routing import WebSocketRoute
 from .bridge import Bridge, BridgeError
 from .store import DATA_DIR, Session, Store
 
-log = logging.getLogger("zen_pilot")
+log = logging.getLogger("remobro")
 
-PORT = int(os.environ.get("ZEN_PILOT_PORT", "8765"))
-CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "zen-pilot"
+PORT = int(os.environ.get("REMOBRO_PORT", "8765"))
+CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "remobro"
 MAX_OUT = 12_000  # hard cap on any text result (chars)
 
 INSTRUCTIONS = """\
-Drive the user's real Zen browser. Be token-frugal: use the cheapest observation that answers \
+Drive the user's real browser. Be token-frugal: use the cheapest observation that answers \
 your question, and batch actions.
 
 Escalation ladder (cheap → expensive):
@@ -42,7 +42,7 @@ Acting: act([...steps]) with element numbers or labels, e.g. [{"do":"fill","id":
 the element disappears. act reports what changed (url, dialogs, texts, validation errors, console \
 and network ERRORs) — don't re-observe unless you need to.
 Testing: {"do":"expect","text"|"url"|"title"|"el":…,"not"?} asserts; session(op="export") saves the \
-run as a replayable test (`zen-pilot replay file.json`, no LLM needed).
+run as a replayable test (`remobro replay file.json`, no LLM needed).
 Prefer direct URLs (search URLs, known paths) over clicking through menus.
 
 Sessions: session(op="start", text=goal) first (or op="resume"); save findings with \
@@ -61,7 +61,7 @@ AGENTS = {
     "langchain": ("Agent", "#a06cd5", "purple"),
 }
 
-mcp = FastMCP("zen", instructions=INSTRUCTIONS, host="127.0.0.1", port=PORT)
+mcp = FastMCP("remobro", instructions=INSTRUCTIONS, host="127.0.0.1", port=PORT)
 bridge = Bridge()
 store = Store()
 _bound: weakref.WeakKeyDictionary[Any, str] = weakref.WeakKeyDictionary()
@@ -106,7 +106,7 @@ async def _unpaused(s: Session) -> None:
     try:
         await asyncio.wait_for(ev.wait(), 300)
     except TimeoutError:
-        raise ToolError("The user paused this session (Pause/Take over in Zen) and has not resumed it. Stop and wait for the user.") from None
+        raise ToolError("The user paused this session (Pause/Take over in the browser) and has not resumed it. Stop and wait for the user.") from None
 
 
 def _clip(text: str) -> str:
@@ -176,8 +176,8 @@ async def open_(ctx: Context, url: str = "", tab: str = "", new_tab: bool = True
         return _done(s, "open", url, r["out"], r)
     if url:
         s.script.append({"do": "goto", "url": url})
-    # Agent tabs open in the background so the user can keep browsing (ZEN_PILOT_FOCUS=1 to follow along).
-    focus = os.environ.get("ZEN_PILOT_FOCUS") == "1" and not s.tabs
+    # Agent tabs open in the background so the user can keep browsing (REMOBRO_FOCUS=1 to follow along).
+    focus = os.environ.get("REMOBRO_FOCUS") == "1" and not s.tabs
     r = await _call("tab.open", {"url": url or None, "tab": tab or None, "focus": focus, "session": _sess_payload(s)}, 60)
     s.current_tab = r["tabId"]
     if r["tabId"] not in s.tabs:
@@ -318,7 +318,7 @@ async def errors(ctx: Context, clear: bool = False, tab: int = 0) -> str:
 
 @mcp.tool()
 async def ask_user(ctx: Context, question: str, kind: Literal["confirm", "done", "text"] = "confirm", tab: int = 0) -> str:
-    """Ask the user in Zen and wait for the answer. confirm → "yes"/"no"; done → user finished a manual step
+    """Ask the user in the browser and wait for the answer. confirm → "yes"/"no"; done → user finished a manual step
     (login, captcha, 2FA); text → free-text reply."""
     s = _session(ctx)
     t = _tab(s, tab) if (tab or s.current_tab) else None
@@ -393,7 +393,7 @@ async def session(ctx: Context, op: Literal["start", "resume", "state", "note", 
         name = text or s.goal
         f = s.dir / "test.json"
         f.write_text(json.dumps({"name": name, "session": s.id, "steps": steps}, indent=1))
-        return f"exported {len(steps)} steps to {f}\nrun: zen-pilot replay {f}"
+        return f"exported {len(steps)} steps to {f}\nrun: remobro replay {f}"
     if op == "end":
         s.status = "ended"
         s.summary = text[:1000]
@@ -448,7 +448,7 @@ class KeyAuth:
             auth = dict(scope.get("headers") or []).get(b"authorization", b"").decode()
             if qs.get("key", [""])[0] != self.key and auth != f"Bearer {self.key}":
                 await send({"type": "http.response.start", "status": 401, "headers": [(b"content-type", b"text/plain")]})
-                await send({"type": "http.response.body", "body": b"zen-pilot: missing or wrong key"})
+                await send({"type": "http.response.body", "body": b"remobro: missing or wrong key"})
                 return
         await self.app(scope, receive, send)
 

@@ -1,4 +1,4 @@
-"""zen-pilot command line."""
+"""remobro command line."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-SERVICE = Path.home() / ".config/systemd/user/zen-pilot.service"
+SERVICE = Path.home() / ".config/systemd/user/remobro.service"
 
 
 def cmd_daemon(_: argparse.Namespace) -> None:
@@ -27,47 +27,47 @@ def cmd_install(args: argparse.Namespace) -> None:
     """Run the daemon as a systemd user service and register the MCP server with Claude Code and Codex."""
     from .daemon import mcp_url
 
-    # the zen-pilot executable running right now: a `uv tool` install, or a checkout's .venv
+    # the remobro executable running right now: a `uv tool` install, or a checkout's .venv
     exe = Path(sys.argv[0]).absolute()
     SERVICE.parent.mkdir(parents=True, exist_ok=True)
     SERVICE.write_text(
-        "[Unit]\nDescription=zen-pilot: MCP bridge to the Zen browser\n\n"
+        "[Unit]\nDescription=remobro: MCP bridge to your browser\n\n"
         f"[Service]\nExecStart={exe} daemon\nRestart=on-failure\nRestartSec=2\n\n"
         "[Install]\nWantedBy=default.target\n"
     )
     subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
-    subprocess.run(["systemctl", "--user", "enable", "--now", "zen-pilot.service"], check=True)
-    subprocess.run(["systemctl", "--user", "restart", "zen-pilot.service"], check=True)
+    subprocess.run(["systemctl", "--user", "enable", "--now", "remobro.service"], check=True)
+    subprocess.run(["systemctl", "--user", "restart", "remobro.service"], check=True)
     print(f"daemon service: {SERVICE}")
 
     url = mcp_url()
     if shutil.which("claude") and "claude" in args.clients:
-        subprocess.run(["claude", "mcp", "remove", "-s", "user", "zen"], capture_output=True)
-        subprocess.run(["claude", "mcp", "add", "-s", "user", "--transport", "http", "zen", url], check=True)
-        print("registered with Claude Code (user scope) as 'zen'")
+        subprocess.run(["claude", "mcp", "remove", "-s", "user", "remobro"], capture_output=True)
+        subprocess.run(["claude", "mcp", "add", "-s", "user", "--transport", "http", "remobro", url], check=True)
+        print("registered with Claude Code (user scope) as 'remobro'")
     if shutil.which("codex") and "codex" in args.clients:
-        subprocess.run(["codex", "mcp", "remove", "zen"], capture_output=True)
-        subprocess.run(["codex", "mcp", "add", "zen", "--url", url], check=True)
-        print("registered with Codex as 'zen'")
+        subprocess.run(["codex", "mcp", "remove", "remobro"], capture_output=True)
+        subprocess.run(["codex", "mcp", "add", "remobro", "--url", url], check=True)
+        print("registered with Codex as 'remobro'")
     print("MCP URL (for other clients):", url)
 
 
 def cmd_uninstall(_: argparse.Namespace) -> None:
     """Stop and remove the systemd service and the MCP registrations (sessions and notes are kept)."""
     if SERVICE.exists():
-        subprocess.run(["systemctl", "--user", "disable", "--now", "zen-pilot.service"], capture_output=True)
+        subprocess.run(["systemctl", "--user", "disable", "--now", "remobro.service"], capture_output=True)
         SERVICE.unlink()
         subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
         print(f"removed {SERVICE}")
     if shutil.which("claude"):
-        subprocess.run(["claude", "mcp", "remove", "-s", "user", "zen"], capture_output=True)
+        subprocess.run(["claude", "mcp", "remove", "-s", "user", "remobro"], capture_output=True)
     if shutil.which("codex"):
-        subprocess.run(["codex", "mcp", "remove", "zen"], capture_output=True)
-    print("removed MCP server 'zen' from Claude Code / Codex")
+        subprocess.run(["codex", "mcp", "remove", "remobro"], capture_output=True)
+    print("removed MCP server 'remobro' from Claude Code / Codex")
 
 
 def cmd_call(args: argparse.Namespace) -> None:
-    """Call one zen tool from the shell (for shell-only agents and scripts). Keeps a session between calls."""
+    """Call one remobro tool from the shell (for shell-only agents and scripts). Keeps a session between calls."""
     import asyncio
     import json
 
@@ -160,12 +160,12 @@ def cmd_run(args: argparse.Namespace) -> None:
         from .runner import main as runner_main
     except ImportError:
         sys.exit("the runner needs extras: uv sync --extra runner")
-    sys.argv = ["zen-pilot run", *args.rest]
+    sys.argv = ["remobro run", *args.rest]
     runner_main()
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(prog="zen-pilot", description="Let AI agents drive your Zen browser over MCP.")
+    p = argparse.ArgumentParser(prog="remobro", description="Let AI agents drive your browser over MCP.")
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("daemon", help="run the bridge (MCP on :8765/mcp, extension socket on :8765/ext)").set_defaults(fn=cmd_daemon)
     sub.add_parser("url", help="print the MCP URL (includes the access key)").set_defaults(fn=cmd_url)
@@ -173,10 +173,10 @@ def main() -> None:
     ins.add_argument("--clients", nargs="*", default=["claude", "codex"])
     ins.set_defaults(fn=cmd_install)
     sub.add_parser("uninstall", help="remove the service and MCP registrations").set_defaults(fn=cmd_uninstall)
-    cl = sub.add_parser("call", help="call a tool: zen-pilot call act '{\"steps\":[...]}'")
+    cl = sub.add_parser("call", help="call a tool: remobro call act '{\"steps\":[...]}'")
     cl.add_argument("tool")
     cl.add_argument("json", nargs="?", default="")
-    cl.add_argument("--as", dest="as_", default="claude", help="agent name shown in Zen (claude, codex, ...)")
+    cl.add_argument("--as", dest="as_", default="claude", help="agent name shown in the browser (claude, codex, ...)")
     cl.set_defaults(fn=cmd_call)
     rp = sub.add_parser("replay", help="replay a recorded test (session export) with no LLM")
     rp.add_argument("file")

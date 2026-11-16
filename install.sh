@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# Zen Pilot installer: CLI + bridge service + MCP registration + browser extension.
+# remobro installer: CLI + bridge service + MCP registration + browser extension.
 #
-#   curl -fsSL https://github.com/iput-object/zen-pilot/releases/latest/download/install.sh | bash
+#   curl -fsSL https://github.com/iput-object/remobro/releases/latest/download/install.sh | bash
 #   ./install.sh                 from a clone: installs this checkout
 #   ./install.sh --uninstall     removes service, MCP entries and the CLI (keeps your sessions/notes)
 #
-# Env: ZEN_PILOT_REPO (owner/name), ZEN_PILOT_REF (git ref, default: latest release tag),
-#      ZEN_PILOT_NO_EXTENSION=1 (skip the extension step).
+# Env: REMOBRO_REPO (owner/name), REMOBRO_REF (git ref, default: latest release tag),
+#      REMOBRO_NO_EXTENSION=1 (skip the extension step).
 set -euo pipefail
 
-REPO="${ZEN_PILOT_REPO:-iput-object/zen-pilot}"
-REF="${ZEN_PILOT_REF:-}"
-XPI_DIR="$HOME/Downloads/zen-pilot" # Flatpak browsers can read ~/Downloads
+REPO="${REMOBRO_REPO:-iput-object/remobro}"
+REF="${REMOBRO_REF:-}"
+XPI_DIR="$HOME/Downloads/remobro" # Flatpak browsers can read ~/Downloads
 ZEN_FLATPAK="app.zen_browser.zen"
 
 say() { printf '\033[1;35m==>\033[0m %s\n' "$*"; }
@@ -24,13 +24,13 @@ gh_ok() { have gh && gh auth status >/dev/null 2>&1; }
 SRC=""
 if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
   d="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  [[ -f "$d/pyproject.toml" && -d "$d/src/zen_pilot" ]] && SRC="$d"
+  [[ -f "$d/pyproject.toml" && -d "$d/src/remobro" ]] && SRC="$d"
 fi
 
 uninstall() {
-  if have zen-pilot; then zen-pilot uninstall || true; fi
-  if have uv; then uv tool uninstall zen-pilot 2>/dev/null || true; fi
-  say "Removed. Remove the extension from the browser's add-ons page; data stays in ~/.local/share/zen-pilot."
+  if have remobro; then remobro uninstall || true; fi
+  if have uv; then uv tool uninstall remobro 2>/dev/null || true; fi
+  say "Removed. Remove the extension from the browser's add-ons page; data stays in ~/.local/share/remobro."
 }
 
 ensure_uv() {
@@ -52,17 +52,17 @@ latest_tag() {
 
 install_cli() {
   if [[ -n "$SRC" ]]; then
-    say "Installing zen-pilot from $SRC"
+    say "Installing remobro from $SRC"
     uv tool install --force --reinstall --python 3.12 "$SRC"
   else
     [[ -n "$REF" ]] || REF="$(latest_tag)"
     local url="https://github.com/$REPO"
-    say "Installing zen-pilot from $url${REF:+ @ $REF}"
+    say "Installing remobro from $url${REF:+ @ $REF}"
     if gh_ok; then gh auth setup-git >/dev/null 2>&1 || true; fi # private repos over https
     uv tool install --force --python 3.12 "git+$url${REF:+@$REF}"
   fi
   export PATH="$HOME/.local/bin:$PATH"
-  have zen-pilot || die "zen-pilot not on PATH; run 'uv tool update-shell' and re-run"
+  have remobro || die "remobro not on PATH; run 'uv tool update-shell' and re-run"
 }
 
 # Fetch a release asset into $2; returns 1 when there is no such asset.
@@ -95,13 +95,13 @@ open_in_browser() {
 }
 
 install_extension() {
-  [[ "${ZEN_PILOT_NO_EXTENSION:-}" == 1 ]] && return
+  [[ "${REMOBRO_NO_EXTENSION:-}" == 1 ]] && return
   mkdir -p "$XPI_DIR"
-  local xpi="$XPI_DIR/zen-pilot.xpi"
-  if fetch_asset zen-pilot.xpi "$xpi"; then
+  local xpi="$XPI_DIR/remobro.xpi"
+  if fetch_asset remobro.xpi "$xpi"; then
     say "Extension downloaded: $xpi"
     if open_in_browser "$xpi"; then
-      say "Your browser is asking to add Zen Pilot: click Add."
+      say "Your browser is asking to add remobro: click Add."
     else
       say "Install it: open $xpi in Zen/Firefox (or drag it onto the window)."
     fi
@@ -123,10 +123,10 @@ main() {
   have curl || die "curl is required"
   ensure_uv
   install_cli
-  say "Starting the bridge and registering MCP server 'zen'"
-  zen-pilot install
+  say "Starting the bridge and registering MCP server 'remobro'"
+  remobro install
   install_extension
-  say "Done. Ask Claude Code or Codex: \"use the zen browser to …\""
+  say "Done. Ask Claude Code or Codex: \"use remobro to …\""
 }
 
 main "$@"

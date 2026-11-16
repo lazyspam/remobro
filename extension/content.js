@@ -1,8 +1,8 @@
-// Zen Pilot content script: compact page observation, actions with effect reports,
+// remobro content script: compact page observation, actions with effect reports,
 // and the "AI is driving" overlay. Injected on demand by background.js.
 (() => {
-  if (window.__zenPilot) return;
-  const ZP = (window.__zenPilot = {});
+  if (window.__remobro) return;
+  const ZP = (window.__remobro = {});
 
   // ---------------------------------------------------------------- ids
   // Stable ids: an element keeps its number until it leaves the DOM.
@@ -1075,8 +1075,8 @@
     function ensure() {
       if (host?.isConnected) return;
       // drop overlays left behind by a previous version of the extension
-      document.querySelectorAll("zen-pilot-overlay").forEach((e) => e.remove());
-      host = document.createElement("zen-pilot-overlay");
+      document.querySelectorAll("remobro-overlay").forEach((e) => e.remove());
+      host = document.createElement("remobro-overlay");
       root = host.attachShadow({ mode: "closed" });
       root.innerHTML = `<style>${css}</style><div class="border"></div>
         <div class="pill"><span class="dot"></span><span class="lbl"></span><span class="step"></span>

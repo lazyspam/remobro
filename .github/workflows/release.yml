@@ -41,7 +41,7 @@ jobs:
           sed -i "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
 
       - name: Build extension
-        run: npx --yes web-ext@8 build --source-dir extension --artifacts-dir dist --filename zen-pilot-unsigned.zip
+        run: npx --yes web-ext@8 build --source-dir extension --artifacts-dir dist --filename remobro-unsigned.zip
 
       - name: Sign extension (unlisted, self-distributed)
         if: env.AMO_JWT_ISSUER != ''
@@ -49,10 +49,10 @@ jobs:
           npx --yes web-ext@8 sign --source-dir extension --artifacts-dir signed \
             --channel unlisted --api-key "$AMO_JWT_ISSUER" --api-secret "$AMO_JWT_SECRET" \
             --approval-timeout 900000
-          mv signed/*.xpi dist/zen-pilot.xpi
+          mv signed/*.xpi dist/remobro.xpi
           # Firefox checks this file (manifest update_url) to auto-update the add-on
-          jq -n --arg v "$VERSION" --arg url "https://github.com/$REPO/releases/download/$TAG/zen-pilot.xpi" \
-            '{addons: {"zen-pilot@local": {updates: [{version: $v, update_link: $url}]}}}' > dist/updates.json
+          jq -n --arg v "$VERSION" --arg url "https://github.com/$REPO/releases/download/$TAG/remobro.xpi" \
+            '{addons: {"remobro@iput-object": {updates: [{version: $v, update_link: $url}]}}}' > dist/updates.json
 
       - name: Build Python package
         run: uv build --out-dir dist
@@ -65,5 +65,5 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/* --clobber
           else
-            gh release create "$TAG" dist/* --title "Zen Pilot $TAG" --generate-notes
+            gh release create "$TAG" dist/* --title "remobro $TAG" --generate-notes
           fi
