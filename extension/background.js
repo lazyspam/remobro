@@ -682,7 +682,9 @@ async function actSteps(tabId, steps) {
     lines.push(`✓ ${r.desc}`);
     if (r.note) lines.push(r.note);
     const { id, ...rest } = s;
-    rec.push(id != null && r.loc ? { ...rest, el: r.loc } : s);
+    let st = id != null && r.loc ? { ...rest, el: r.loc } : s;
+    if (r.toLoc && /^#?\d+$/.test(String(s.to))) st = { ...st, to: r.toLoc }; // replayable drag target
+    rec.push(st);
     if (await navigatedSince(tabId, t0, 350)) {
       await waitComplete(tabId, 20000);
       navigated = true;

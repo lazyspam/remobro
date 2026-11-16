@@ -59,7 +59,7 @@
   const INTERACTIVE = [
     "a[href]", "button", "input:not([type=hidden])", "textarea", "select", "summary",
     "[contenteditable='']", "[contenteditable='true']", "[onclick]",
-    "[tabindex]:not([tabindex='-1'])",
+    "[tabindex]:not([tabindex='-1'])", "[draggable='true']",
     ...["button", "link", "checkbox", "radio", "tab", "menuitem", "menuitemcheckbox", "menuitemradio",
       "option", "switch", "combobox", "textbox", "searchbox", "slider", "spinbutton", "treeitem"]
       .map((r) => `[role=${r}]`),
@@ -115,6 +115,7 @@
     }
     if (t === "textarea" || t === "select") return t;
     if (el.isContentEditable) return "editable";
+    if (!r && el.getAttribute("draggable") === "true") return "draggable";
     return r || t;
   }
 
@@ -948,7 +949,7 @@
     const loc = el ? locator(el) : null;
     const name = el ? `${eid(el)} ${q(label(el))}` : "";
     UI.step(`${op} ${name}`.trim());
-    let note = "";
+    let note = "", dragTo = null;
     switch (op) {
       case "click":
       case "dblclick":
@@ -1090,9 +1091,14 @@
         break;
       }
       // Coordinate actions for canvas apps (Figma, maps, games). x/y are viewport CSS pixels.
-      case "click_at":
-      case "move":
       case "drag": {
+        const r = await dragOp(s, el);
+        note = r.note;
+        dragTo = r.toLoc;
+        break;
+      }
+      case "click_at":
+      case "move": {
         const pt = (x, y) => ({ x: +x, y: +y, t: document.elementFromPoint(+x, +y) || document.body });
         const a = pt(s.x, s.y);
         await UI.pointTo(a.x, a.y);
@@ -1103,30 +1109,13 @@
         await UI.press(true);
         mouse(a.t, "pointerdown", a.x, a.y, opt);
         mouse(a.t, "mousedown", a.x, a.y);
-        if (op === "drag") {
-          const b = pt(s.x2, s.y2);
-          const n = Math.max(4, Math.min(30, s.steps || 12));
-          for (let i = 1; i <= n; i++) {
-            const x = a.x + ((b.x - a.x) * i) / n, y = a.y + ((b.y - a.y) * i) / n;
-            const t = document.elementFromPoint(x, y) || a.t;
-            mouse(t, "pointermove", x, y, { ...opt, buttons: 1 });
-            mouse(t, "mousemove", x, y, { buttons: 1 });
-            UI.cursorAt(x, y);
-            await sleep(16);
-          }
-          mouse(b.t, "pointerup", b.x, b.y, opt);
-          mouse(b.t, "mouseup", b.x, b.y);
-          UI.press(false);
-          UI.ripple(b.x, b.y);
-        } else {
-          await sleep(UI.watching() ? 60 : 0);
-          UI.press(false);
-          mouse(a.t, "pointerup", a.x, a.y, opt);
-          mouse(a.t, "mouseup", a.x, a.y);
-          mouse(a.t, "click", a.x, a.y);
-          if (s.double) mouse(a.t, "dblclick", a.x, a.y, { detail: 2 });
-          UI.ripple(a.x, a.y);
-        }
+        await sleep(UI.watching() ? 60 : 0);
+        UI.press(false);
+        mouse(a.t, "pointerup", a.x, a.y, opt);
+        mouse(a.t, "mouseup", a.x, a.y);
+        mouse(a.t, "click", a.x, a.y);
+        if (s.double) mouse(a.t, "dblclick", a.x, a.y, { detail: 2 });
+        UI.ripple(a.x, a.y);
         break;
       }
       case "wait": {
@@ -1147,8 +1136,155 @@
     // which may load content the next step needs).
     const heavy = op === "click" || op === "dblclick" || op === "check" || (op === "fill" && s.enter);
     if (op !== "wait") await settle(last || heavy ? 250 : 80, last || heavy ? 2500 : 600);
-    return { ok: true, desc: `${op} ${name}${s.repeat > 1 ? " ×" + s.repeat : ""}`.trim(), note, loc };
+    return { ok: true, desc: `${op} ${name}${s.repeat > 1 ? " ×" + s.repeat : ""}`.trim(), note, loc, toLoc: dragTo };
   };
+
+  // ---------------------------------------------------------------- drag
+  // The element at a point, looking through remobro's own overlay.
+  function hit(x, y) {
+    for (const e of document.elementsFromPoint(x, y)) if (e.tagName !== "REMOBRO-OVERLAY") return e;
+    return document.documentElement;
+  }
+  // drag from an element (or s.x,s.y) to "to" (element number, label, or "x,y"), dx/dy, or x2/y2.
+  // draggable="true" sources get real HTML5 drag-and-drop events (kanban boards, sortable
+  // lists, drop zones); everything else a pointer/mouse drag (sliders, canvases, dnd libraries).
+  async function dragOp(s, src) {
+    let a;
+    if (src) a = await prep(src);
+    else a = { x: +s.x, y: +s.y };
+    if (!Number.isFinite(a.x) || !Number.isFinite(a.y)) throw new Error('drag needs a source: "id"/"el", or x,y');
+    let dest = null, b;
+    if (s.to != null) {
+      const m = /^\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*$/.exec(String(s.to));
+      if (m) b = { x: +m[1], y: +m[2] };
+      else {
+        dest = /^#?\d+$/.test(String(s.to)) ? getEl(s.to) : resolveDropTarget(String(s.to));
+        if (!inViewport(dest)) {
+          dest.scrollIntoView({ block: "nearest", behavior: "instant" });
+          if (src) a = center(src);
+        }
+        if (src && !inViewport(src)) throw new Error("source and target don't fit on one screen: scroll so both are visible, or drag in steps");
+        const c = center(dest);
+        b = { x: c.x, y: c.y };
+      }
+    } else if (s.dx != null || s.dy != null) b = { x: a.x + (+s.dx || 0), y: a.y + (+s.dy || 0) };
+    else if (s.x2 != null) b = { x: +s.x2, y: +s.y2 };
+    else throw new Error('drag needs a target: "to" (element number, label or "x,y"), dx/dy, or x2/y2');
+    const toLoc = dest ? locator(dest) : null;
+    // native range sliders ignore synthetic pointer events: set the value at the drop position
+    if (src?.matches?.('input[type="range"]')) {
+      const r = src.getBoundingClientRect(), min = +src.min || 0, max = src.max === "" ? 100 : +src.max, step = +src.step || 1;
+      const v = Math.min(max, Math.max(min, min + Math.round((((b.x - r.left) / r.width) * (max - min)) / step) * step));
+      await UI.pointTo(b.x, a.y);
+      setValue(src, String(v));
+      return { note: `slider ${eid(src)} → ${src.value}`, toLoc };
+    }
+    const draggable = (src || hit(a.x, a.y)).closest?.('[draggable="true"]');
+    const note = draggable ? await html5Drag(draggable, a, b) : await pointerDrag(a, b);
+    return { note, toLoc };
+  }
+  // Drop targets are often not controls (a "Done" column, a folder row): match controls
+  // first, then any visible element whose own text is the label (the deepest one).
+  function resolveDropTarget(label) {
+    try {
+      return resolveEl(label);
+    } catch (e) {
+      const want = label.trim().toLowerCase();
+      let best = null;
+      for (const el of qsaDeep("*", document.body)) {
+        if (/^(SCRIPT|STYLE|REMOBRO-OVERLAY)$/.test(el.tagName) || !isVisible(el)) continue;
+        const own = ownText(el).trim().replace(/^"|"$/g, "").toLowerCase();
+        if (own === want || (!best && own.startsWith(want))) best = el;
+        if (own === want) break;
+      }
+      if (!best) throw e;
+      return best;
+    }
+  }
+  const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
+  // After setPointerCapture, a browser sends every pointer event to the capturing element.
+  const captor = () => document.querySelector("[data-remobro-capture]");
+  async function pointerDrag(a, b) {
+    document.querySelectorAll("[data-remobro-capture]").forEach((e) => e.removeAttribute("data-remobro-capture"));
+    const t0 = hit(a.x, a.y);
+    await UI.pointTo(a.x, a.y);
+    mouse(t0, "pointermove", a.x, a.y);
+    mouse(t0, "mousemove", a.x, a.y);
+    await UI.press(true);
+    mouse(t0, "pointerdown", a.x, a.y);
+    mouse(t0, "mousedown", a.x, a.y);
+    await sleep(80); // a beat before moving: some libraries start dragging only after a hold
+    const n = Math.max(8, Math.min(40, Math.round(Math.hypot(b.x - a.x, b.y - a.y) / 20)));
+    for (let i = 1; i <= n; i++) {
+      const k = ease(i / n);
+      const x = a.x + (b.x - a.x) * k, y = a.y + (b.y - a.y) * k;
+      const t = hit(x, y);
+      mouse(captor() || t, "pointermove", x, y, { buttons: 1 });
+      mouse(t, "mousemove", x, y, { buttons: 1 });
+      UI.cursorAt(x, y);
+      await sleep(16);
+    }
+    await sleep(120); // settle over the target: sortable lists reorder on hover
+    const tb = hit(b.x, b.y);
+    mouse(captor() || tb, "pointermove", b.x, b.y, { buttons: 1 });
+    mouse(captor() || tb, "pointerup", b.x, b.y);
+    captor()?.removeAttribute("data-remobro-capture");
+    mouse(tb, "mouseup", b.x, b.y);
+    UI.press(false);
+    UI.ripple(b.x, b.y);
+    return `released at ${Math.round(b.x)},${Math.round(b.y)} over ${eid(tb)} ${nodeName(tb)}`;
+  }
+  async function html5Drag(srcEl, a, b) {
+    // Firefox: build the events in the page's own world, or page code can't read dataTransfer
+    const W = typeof cloneInto === "function" ? window.wrappedJSObject : null;
+    const dt = W ? new W.DataTransfer() : new DataTransfer();
+    const mk = (type, x, y) => {
+      const init = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, screenX: x, screenY: y, buttons: 1, dataTransfer: dt };
+      return W ? new W.DragEvent(type, cloneInto(init, window, { wrapReflectors: true })) : new DragEvent(type, init);
+    };
+    await UI.pointTo(a.x, a.y);
+    await UI.press(true);
+    mouse(srcEl, "pointerdown", a.x, a.y);
+    mouse(srcEl, "mousedown", a.x, a.y);
+    const start = mk("dragstart", a.x, a.y);
+    srcEl.dispatchEvent(start);
+    if (start.defaultPrevented) {
+      UI.press(false);
+      return "the page cancelled the drag (dragstart prevented)";
+    }
+    let over = null, accepted = false;
+    const n = Math.max(8, Math.min(40, Math.round(Math.hypot(b.x - a.x, b.y - a.y) / 20)));
+    for (let i = 1; i <= n; i++) {
+      const k = ease(i / n);
+      const x = a.x + (b.x - a.x) * k, y = a.y + (b.y - a.y) * k;
+      const t = hit(x, y);
+      srcEl.dispatchEvent(mk("drag", x, y));
+      if (t !== over) {
+        over?.dispatchEvent(mk("dragleave", x, y));
+        t.dispatchEvent(mk("dragenter", x, y));
+        over = t;
+      }
+      const ov = mk("dragover", x, y);
+      t.dispatchEvent(ov);
+      accepted = ov.defaultPrevented; // a drop target says "drop here" by preventing dragover
+      UI.cursorAt(x, y);
+      await sleep(16);
+    }
+    await sleep(80);
+    let msg;
+    if (accepted && over) {
+      over.dispatchEvent(mk("drop", b.x, b.y));
+      msg = `dropped on ${eid(over)} ${nodeName(over)}`;
+    } else {
+      over?.dispatchEvent(mk("dragleave", b.x, b.y));
+      msg = `nothing accepted the drop at ${Math.round(b.x)},${Math.round(b.y)} (no dragover handler there)`;
+    }
+    srcEl.dispatchEvent(mk("dragend", b.x, b.y));
+    mouse(over || srcEl, "mouseup", b.x, b.y);
+    UI.press(false);
+    UI.ripple(b.x, b.y);
+    return msg + " (HTML5 drag and drop)";
+  }
 
   async function pressEnter(el) {
     const notPrevented = key(el, "Enter");

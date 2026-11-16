@@ -9,8 +9,10 @@
   for (const m of ["setPointerCapture", "releasePointerCapture"]) {
     const orig = Element.prototype[m];
     Element.prototype[m] = function (id) {
-      if (id === 7331) return;
-      return orig.call(this, id);
+      if (id !== 7331) return orig.call(this, id);
+      // remember who captured, so remobro's drag sends the next moves there like a browser would
+      if (m === "setPointerCapture") this.setAttribute("data-remobro-capture", "");
+      else this.removeAttribute("data-remobro-capture");
     };
   }
   const emit = (s) => document.dispatchEvent(new CustomEvent("__remobro_err", { detail: String(s) }));

@@ -22,8 +22,10 @@
       const orig = proto[m];
       exportFunction(
         function (id) {
-          if (id === 7331) return;
-          return orig.call(this, id);
+          if (id !== 7331) return orig.call(this, id);
+          // remember who captured, so remobro's drag sends the next moves there like a browser would
+          if (m === "setPointerCapture") this.setAttribute("data-remobro-capture", "");
+          else this.removeAttribute("data-remobro-capture");
         },
         proto,
         { defineAs: m },

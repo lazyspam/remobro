@@ -351,6 +351,8 @@ async def act(ctx: Context, steps: list[dict], tab: int = 0) -> str:
     {"do":"expect","text"|"url"|"title"|"el":"…","not":true?,"ms"?} (assertion) ·
     {"do":"scroll","dir":"down|up|top|bottom","amount":screens?} or {"do":"scroll","id":N} ·
     {"do":"wait","text":"…"} or {"do":"wait","ms":N} · {"do":"goto","url":"…"} · {"do":"back"|"forward"|"reload"}.
+    Drag: {"do":"drag","id":N|"el":"…","to":N|"label"|"x,y"} or "dx"/"dy" offsets (HTML5 drag-and-drop for
+    draggable elements, pointer drag otherwise: kanban, sortable lists, sliders, drop zones).
     Canvas apps (Figma, maps): {"do":"click_at","x":…,"y":…,"double"?} · {"do":"drag","x":…,"y":…,"x2":…,"y2":…} ·
     {"do":"move","x":…,"y":…} — viewport CSS px (from look("viewport")) · {"do":"insert","text":"…"} types into the
     focused editor via real input events (canvas-app text tools). Stops at the first failing step."""
