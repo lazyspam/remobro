@@ -317,19 +317,37 @@ async def inspect(ctx: Context, target: str = "", at: str = "", tree: bool = Fal
 
 
 @mcp.tool()
-async def look(ctx: Context, target: str = "viewport", marks: bool = False, bounds: bool = False, tab: int = 0) -> list:
+async def look(ctx: Context, target: str = "viewport", marks: bool = False, bounds: bool = False, fresh: bool = False,
+               tab: int = 0) -> list:
     """Screenshot (most expensive observation). target: element number or rN (cropped, cheapest),
     "viewport", or "full" (whole page). marks=True draws numbers on interactive elements.
     bounds=True shows layout bounds (for alignment/spacing problems): every box outlined in blue,
     margins shaded orange, padding green, labels = element numbers for inspect(N). Use with an element
-    target to zoom into one area; boxes are drawn for the visible viewport part."""
+    target to zoom into one area; boxes are drawn for the visible viewport part.
+    Repeat looks at the same view return only what changed since your last one (no image if nothing did);
+    fresh=True always returns the whole image (e.g. if you no longer have the earlier one)."""
     s = _session(ctx)
     t = _tab(s, tab)
-    r = await _call(s, "page.look", {"tabId": t, "target": target, "marks": marks, "bounds": bounds}, 60)
+    viewer = str(id(ctx.session))  # diffs are per agent connection: only against images it has seen
+    r = await _call(s, "page.look", {"tabId": t, "target": target, "marks": marks, "bounds": bounds, "fresh": fresh,
+                                     "viewer": viewer}, 60)
+    diff = r.get("diff") or {"kind": "full"}
+    if diff["kind"] == "same":
+        s.record("look", f"{target} (unchanged)", 80)
+        store.save(s)
+        return [f"unchanged since your last look at {target} {diff.get('since', 0)}s ago (same {r['w']}x{r['h']} image; "
+                "fresh=True to get it again)"]
     data = base64.b64decode(r["dataUrl"].split(",", 1)[1])
-    f = s.dir / f"look-{time.strftime('%H%M%S')}-{target}.jpg"
+    f = s.dir / f"look-{time.strftime('%H%M%S')}-{target}{'-changed' if diff['kind'] == 'region' else ''}.jpg"
     f.write_bytes(data)
-    s.record("look", target, 1500)
+    if diff["kind"] == "region":
+        g = diff["region"]
+        s.record("look", f"{target} (changed region)", g["w"] * g["h"] // 750)
+        store.save(s)
+        return [Image(data=data, format="jpeg"),
+                f"only this part changed since your last look {diff.get('since', 0)}s ago: {g['w']}x{g['h']} at {g['x']},{g['y']} "
+                f"of the {r['w']}x{r['h']} image (px/{r.get('scale', 1) or 1:.3f} = viewport css); the rest is identical"]
+    s.record("look", target, r["w"] * r["h"] // 750)
     store.save(s)
     sc = r.get("scale", 1) or 1
     hint = f" · page css = (px/{sc:.3f}){' + (' + str(round(r['x0'])) + ',' + str(round(r['y0'])) + ')' if target == 'full' else ''}"

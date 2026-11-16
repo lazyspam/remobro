@@ -485,13 +485,77 @@ async function look(tabId, p) {
   try {
     const maxW = p.maxWidth || (target ? 900 : 1200);
     const scale = Math.min(1, maxW / rect.width) * (p.scale || 1);
-    const dataUrl = await capture(tabId, rect, scale, p.quality || 60, p.target === "full");
-    return { dataUrl, w: Math.round(rect.width * scale), h: Math.round(rect.height * scale), scale, x0: rect.x, y0: rect.y, boxes };
+    const quality = p.quality || 60;
+    const dataUrl = await capture(tabId, rect, scale, quality, p.target === "full");
+    const shot = { dataUrl, w: Math.round(rect.width * scale), h: Math.round(rect.height * scale), scale, x0: rect.x, y0: rect.y, boxes };
+    // what this viewer already saw of this view: only send what changed
+    const key = [p.viewer, tabId, p.target, !!p.marks, !!p.bounds, rect.x, rect.y, rect.width, rect.height, scale].join("|");
+    shot.diff = await diffShot(key, dataUrl, quality, !!p.fresh);
+    if (shot.diff.kind !== "full") shot.dataUrl = shot.diff.dataUrl ?? null;
+    delete shot.diff.dataUrl;
+    return shot;
   } finally {
     await tell(tabId, "uiHide", { hide: false }).catch(() => {});
     if (p.marks) await cs(tabId, "marks", { on: false }).catch(() => {});
     if (p.bounds) await cs(tabId, "bounds", { on: false }).catch(() => {});
   }
+}
+
+// ------------------------------------------------------------------ screenshot diffs
+// The last image each viewer (agent connection) got of each view. A repeat look returns
+// "same" (no image) or just the changed region, which saves most of a screenshot's tokens.
+const lastShots = new Map(); // key -> {w, h, px, t}
+async function decode(dataUrl) {
+  const bmp = await createImageBitmap(await (await fetch(dataUrl)).blob());
+  const canvas = new OffscreenCanvas(bmp.width, bmp.height);
+  const g = canvas.getContext("2d", { willReadFrequently: true });
+  g.drawImage(bmp, 0, 0);
+  return { w: bmp.width, h: bmp.height, px: g.getImageData(0, 0, bmp.width, bmp.height).data, canvas };
+}
+async function toDataUrl(blob) {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return `data:${blob.type};base64,${btoa(bin)}`;
+}
+async function diffShot(key, dataUrl, quality, fresh) {
+  let cur;
+  try {
+    cur = await decode(dataUrl);
+  } catch {
+    return { kind: "full" }; // can't decode here: just send it
+  }
+  const prev = lastShots.get(key);
+  lastShots.set(key, { w: cur.w, h: cur.h, px: cur.px, t: Date.now() });
+  if (lastShots.size > 40) lastShots.delete(lastShots.keys().next().value);
+  if (fresh || !prev || prev.w !== cur.w || prev.h !== cur.h) return { kind: "full" };
+  // changed pixels on a 2px grid, with a tolerance for JPEG noise
+  const { w, h, px } = cur, old = prev.px;
+  let x0 = w, y0 = h, x1 = -1, y1 = -1, n = 0;
+  for (let y = 0; y < h; y += 2)
+    for (let x = 0; x < w; x += 2) {
+      const i = (y * w + x) * 4;
+      if (Math.abs(px[i] - old[i]) + Math.abs(px[i + 1] - old[i + 1]) + Math.abs(px[i + 2] - old[i + 2]) > 48) {
+        n++;
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+    }
+  const since = Math.round((Date.now() - prev.t) / 1000);
+  if (n < 4) return { kind: "same", since };
+  const pad = 16;
+  x0 = Math.max(0, x0 - pad);
+  y0 = Math.max(0, y0 - pad);
+  x1 = Math.min(w, x1 + pad + 2);
+  y1 = Math.min(h, y1 + pad + 2);
+  const cw = x1 - x0, ch = y1 - y0;
+  if (cw * ch > 0.6 * w * h) return { kind: "full", since };
+  const crop = new OffscreenCanvas(cw, ch);
+  crop.getContext("2d").drawImage(cur.canvas, x0, y0, cw, ch, 0, 0, cw, ch);
+  const blob = await crop.convertToBlob({ type: "image/jpeg", quality: quality / 100 });
+  return { kind: "region", since, region: { x: x0, y: y0, w: cw, h: ch }, dataUrl: await toDataUrl(blob) };
 }
 
 // rect is in page (document) CSS px. Firefox can capture background tabs directly;
