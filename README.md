@@ -3,7 +3,7 @@
 Let AI agents drive your real browser: Claude Code, Codex, Gemini CLI, or any MCP client.
 They work in their own background tabs, next to you, using as few tokens as possible.
 
-Works with Zen and Firefox (128+) on Linux.
+Works with Zen, Firefox, Chrome, Brave, Edge and Chromium on Linux, several at once.
 
 ## Install
 
@@ -11,7 +11,9 @@ Works with Zen and Firefox (128+) on Linux.
 curl -fsSL https://github.com/iput-object/remobro/releases/latest/download/install.sh | bash
 ```
 
-Then click **Add** when your browser asks. That's it. Remove with `install.sh --uninstall`.
+Zen/Firefox: click **Add** when it asks. Chrome & co: the installer opens `chrome://extensions`;
+turn on **Developer mode** → **Load unpacked** → pick `~/Downloads/remobro/chromium`.
+Remove with `install.sh --uninstall`.
 
 ## Use
 
@@ -32,6 +34,12 @@ remobro replay ~/.local/share/remobro/sessions/<id>/test.json
 
 Agents can add assertions (`expect`), and console errors or failed requests show up in every result.
 
+## DevTools
+
+Agents can use the Chrome DevTools Protocol on their tab: run JavaScript, watch network and console,
+read response bodies, measure performance (`devtools("Network.enable")`, `devtools("events")`, …).
+In Zen/Firefox only running JavaScript is available.
+
 ## How it saves tokens
 
 The agent reads a page in the cheapest way that answers its question: a short outline first, then
@@ -48,8 +56,9 @@ notice "You logged into a secure area!"
 
 ```bash
 uv sync
-npx web-ext run -s extension --firefox=flatpak:app.zen_browser.zen   # test the extension
-git tag v0.3.0 && git push --tags                                    # release + sign
+npx web-ext run --firefox=flatpak:app.zen_browser.zen    # try the extension in Zen
+scripts/build-chromium.sh                                  # Chromium build → dist/chromium
+git tag v0.3.0 && git push --tags                         # release + sign
 ```
 
 `extension/` is the browser side, `src/remobro/` the MCP bridge.

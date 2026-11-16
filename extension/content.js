@@ -3,6 +3,7 @@
 (() => {
   if (window.__remobro) return;
   const ZP = (window.__remobro = {});
+  const B = globalThis.browser ?? globalThis.chrome;
 
   // ---------------------------------------------------------------- ids
   // Stable ids: an element keeps its number until it leaves the DOM.
@@ -1012,6 +1013,8 @@
       const t0 = performance.now();
       let n = 0;
       await new Promise((done) => {
+        // rAF may never fire (minimized window, headless): never let the animation hang an action
+        setTimeout(done, dur + 250);
         const frame = (now) => {
           const t = Math.min(1, (now - t0) / dur);
           const e = t * t * t * (10 - 15 * t + 6 * t * t);
@@ -1137,7 +1140,7 @@
       place(cx, cy);
       root.addEventListener("click", (e) => {
         const a = e.target.closest?.("[data-a]")?.dataset.a;
-        if (a) browser.runtime.sendMessage({ ui: a });
+        if (a) B.runtime.sendMessage({ ui: a });
       });
       document.documentElement.appendChild(host);
     }
@@ -1228,7 +1231,7 @@
           let v = e.target.dataset?.v;
           if (!v) return;
           if (v === "__text") v = askBox.querySelector("input").value;
-          browser.runtime.sendMessage({ ui: "answer", askId, answer: v });
+          B.runtime.sendMessage({ ui: "answer", askId, answer: v });
           askBox.remove();
           askBox = null;
         });
@@ -1276,8 +1279,17 @@
   ZP.ui = UI;
 
   // ---------------------------------------------------------------- messaging
-  browser.runtime.onMessage.addListener(async (msg) => {
-    const { cmd, args = {} } = msg;
+  // Replies are {v} or {err}: Chromium listeners can't return a promise, so answer through
+  // sendResponse (Firefox supports that too) and carry errors as data.
+  B.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    if (!msg?.cmd) return;
+    handle(msg).then(
+      (v) => sendResponse({ v: v ?? null }),
+      (e) => sendResponse({ err: String(e?.message || e) }),
+    );
+    return true; // answering asynchronously
+  });
+  async function handle({ cmd, args = {} }) {
     switch (cmd) {
       case "ping": return "pong";
       case "status": return ZP.status();
@@ -1297,5 +1309,5 @@
       case "closeAsk": UI.closeAsk(); return true;
       case "scrollY": return { y: scrollY, dpr: devicePixelRatio, w: innerWidth, h: innerHeight };
     }
-  });
+  }
 })();

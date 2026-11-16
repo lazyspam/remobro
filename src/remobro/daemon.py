@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import re
 import logging
 import os
 import secrets
@@ -19,7 +20,7 @@ from mcp.server.fastmcp import Context, FastMCP, Image
 from mcp.server.fastmcp.exceptions import ToolError
 from starlette.routing import WebSocketRoute
 
-from .bridge import Bridge, BridgeError
+from .bridge import Bridge, BridgeError, Conn
 from .store import DATA_DIR, Session, Store
 
 log = logging.getLogger("remobro")
@@ -44,6 +45,11 @@ and network ERRORs) — don't re-observe unless you need to.
 Testing: {"do":"expect","text"|"url"|"title"|"el":…,"not"?} asserts; session(op="export") saves the \
 run as a replayable test (`remobro replay file.json`, no LLM needed).
 Prefer direct URLs (search URLs, known paths) over clicking through menus.
+
+Browsers: if several are connected, sessions use the one the user focused last; open(url, browser="chrome") \
+picks one. DevTools: devtools(cmd, params) sends Chrome DevTools Protocol commands (Runtime.evaluate, \
+Network.enable + devtools("events"), Network.getResponseBody, Performance.getMetrics…); Firefox/Zen: \
+Runtime.evaluate only.
 
 Sessions: session(op="start", text=goal) first (or op="resume"); save findings with \
 op="note"; save reusable per-site tricks with op="site_note" (shown automatically next time).
@@ -139,20 +145,50 @@ def _site_hint(s: Session, host: str) -> str:
     return ("\nsite notes for " + host + ":\n" + "\n".join(f"- {n}" for n in notes)) if notes else ""
 
 
-async def _call(method: str, params: dict[str, Any], timeout: float = 45) -> Any:
+def _conn(s: Session | None, method: str, browser: str = "") -> Conn:
+    """Pick the browser for a call and keep the session bound to it."""
+    if browser:
+        conn = bridge.pick(name=browser)
+    elif s is not None and s.browser in bridge.conns:
+        return bridge.conns[s.browser]
+    elif s is not None and s.browser and method != "tab.open":
+        raise BridgeError(
+            f"{s.browser_name or 'The browser'} (where this session's tabs are) is not connected. "
+            "Call open(url) to continue in another browser."
+        )
+    else:
+        conn = bridge.pick()
+    if s is not None and s.browser != conn.key:
+        if s.browser:  # tab ids of the old browser mean nothing in the new one
+            s.tabs, s.current_tab, s.group_id = [], None, None
+        s.browser, s.browser_name = conn.key, conn.name
+    return conn
+
+
+async def _call(s: Session | None, method: str, params: dict[str, Any], timeout: float = 45, browser: str = "") -> Any:
     try:
-        return await bridge.call(method, params, timeout)
+        await bridge.wait_any()
+        return await bridge.call(method, params, timeout, _conn(s, method, browser))
     except BridgeError as e:
         msg = str(e)
-        if "Invalid tab ID" in msg:
-            msg = f"tab {params.get('tabId')} was closed — call open(url) again (or tabs())."
-            for sess in store.sessions.values():
-                if params.get("tabId") in sess.tabs:
-                    sess.tabs.remove(params["tabId"])
-                    if sess.current_tab == params["tabId"]:
-                        sess.current_tab = sess.tabs[-1] if sess.tabs else None
-                    store.save(sess)
+        if s is not None and re.search(r"Invalid tab ID|No tab with id", msg):
+            tid = params.get("tabId")
+            msg = f"tab {tid} was closed — call open(url) again (or tabs())."
+            if tid in s.tabs:
+                s.tabs.remove(tid)
+                if s.current_tab == tid:
+                    s.current_tab = s.tabs[-1] if s.tabs else None
+                store.save(s)
         raise ToolError(msg) from None
+
+
+async def _ui(s: Session, patch: dict[str, Any]) -> None:
+    """Update the overlay on a session's tabs; best effort (the browser may be gone)."""
+    if s.browser in bridge.conns:
+        try:
+            await bridge.call("session.ui", {"sessionId": s.id, "patch": patch}, 10, bridge.conns[s.browser])
+        except BridgeError:
+            pass
 
 
 def _sess_payload(s: Session) -> dict[str, Any]:
@@ -161,30 +197,34 @@ def _sess_payload(s: Session) -> dict[str, Any]:
 
 # ---------------------------------------------------------------------- tools
 @mcp.tool(name="open")
-async def open_(ctx: Context, url: str = "", tab: str = "", new_tab: bool = True) -> str:
+async def open_(ctx: Context, url: str = "", tab: str = "", new_tab: bool = True, browser: str = "") -> str:
     """Open a URL in a new agent tab (grouped per session) and return its page outline.
-    tab="active" (or a tab id) takes over an existing tab instead; new_tab=False navigates the current agent tab."""
+    tab="active" (or a tab id) takes over an existing tab instead; new_tab=False navigates the current agent tab.
+    browser="chrome"/"zen"/… picks a browser when several are connected (default: the one used last)."""
     s = _session(ctx)
     await _unpaused(s)
     if not url and not tab:
         raise ToolError("give url or tab")
     if url and "://" not in url and not url.startswith("about:"):
         url = "https://" + url
+    if browser and browser.lower() not in s.browser_name.lower():
+        s.current_tab = None  # switching browsers: start with a new tab there
     if not tab and not new_tab and s.current_tab is not None:
         s.script.append({"do": "goto", "url": url})
-        r = await _call("page.act", {"tabId": s.current_tab, "steps": [{"do": "goto", "url": url}]}, 60)
+        r = await _call(s, "page.act", {"tabId": s.current_tab, "steps": [{"do": "goto", "url": url}]}, 60)
         return _done(s, "open", url, r["out"], r)
     if url:
         s.script.append({"do": "goto", "url": url})
     # Agent tabs open in the background so the user can keep browsing (REMOBRO_FOCUS=1 to follow along).
     focus = os.environ.get("REMOBRO_FOCUS") == "1" and not s.tabs
-    r = await _call("tab.open", {"url": url or None, "tab": tab or None, "focus": focus, "session": _sess_payload(s)}, 60)
+    r = await _call(s, "tab.open", {"url": url or None, "tab": tab or None, "focus": focus, "session": _sess_payload(s)}, 60, browser)
     s.current_tab = r["tabId"]
     if r["tabId"] not in s.tabs:
         s.tabs.append(r["tabId"])
     if r.get("groupId") is not None:
         s.group_id = r["groupId"]
-    out = f"tab {r['tabId']}\n{r['page']}{_site_hint(s, _host(r.get('url') or ''))}"
+    where = f" in {s.browser_name}" if len(bridge.conns) > 1 else ""
+    out = f"tab {r['tabId']}{where}\n{r['page']}{_site_hint(s, _host(r.get('url') or ''))}"
     return _done(s, "open", url or f"tab {tab}", out, r)
 
 
@@ -194,23 +234,25 @@ async def tabs(ctx: Context, all: bool = False, use: int = 0, close: int = 0, sh
     show=<id> brings a tab to the front for the user (agents otherwise work in background tabs)."""
     s = _session(ctx)
     if show:
-        await _call("tab.focus", {"tabId": show})
+        await _call(s, "tab.focus", {"tabId": show})
     if close:
-        await _call("tab.close", {"tabId": close})
+        await _call(s, "tab.close", {"tabId": close})
         s.tabs = [t for t in s.tabs if t != close]
         if s.current_tab == close:
             s.current_tab = s.tabs[-1] if s.tabs else None
     if use:
         if use not in s.tabs:
-            r = await _call("tab.open", {"tab": str(use), "session": _sess_payload(s), "outline": False})
+            r = await _call(s, "tab.open", {"tab": str(use), "session": _sess_payload(s), "outline": False})
             s.tabs.append(r["tabId"])
         s.current_tab = use
-    items = await _call("tabs.list", {"all": all, "sessionId": s.id})
+    items = await _call(s, "tabs.list", {"all": all, "sessionId": s.id})
     lines = [
         f"{'*' if t['id'] == s.current_tab else ' '}{t['id']} {'[agent] ' if t['mine'] else ''}{'(user active) ' if t['active'] else ''}"
         f"{(t['title'] or '')[:60]} — {(t['url'] or '')[:90]}"
         for t in items
     ]
+    if len(bridge.conns) > 1:
+        lines.insert(0, "browsers: " + ", ".join(f"{c.name}{' (this session)' if c.key == s.browser else ''}" for c in bridge.browsers()))
     return _done(s, "tabs", "", "\n".join(lines) or "no tabs")
 
 
@@ -219,7 +261,7 @@ async def outline(ctx: Context, tab: int = 0) -> str:
     """Page map: title/url, scroll, modal dialogs, landmark regions (rN) with counts, headings."""
     s = _session(ctx)
     t = _tab(s, tab)
-    return _done(s, "outline", "", await _call("page.outline", {"tabId": t, "args": {"maxLines": 45}}))
+    return _done(s, "outline", "", await _call(s, "page.outline", {"tabId": t, "args": {"maxLines": 45}}))
 
 
 @mcp.tool()
@@ -231,7 +273,7 @@ async def elements(ctx: Context, region: str = "", filter: str = "", all: bool =
     s = _session(ctx)
     t = _tab(s, tab)
     args = {"region": region or None, "filter": filter or None, "all": all, "expand": expand, "hrefs": hrefs, "max": max}
-    return _done(s, "elements", region or filter, await _call("page.elements", {"tabId": t, "args": args}))
+    return _done(s, "elements", region or filter, await _call(s, "page.elements", {"tabId": t, "args": args}))
 
 
 @mcp.tool()
@@ -240,7 +282,7 @@ async def find(ctx: Context, query: str, region: str = "", tab: int = 0) -> str:
     control. query is text or /regex/."""
     s = _session(ctx)
     t = _tab(s, tab)
-    return _done(s, "find", query, await _call("page.find", {"tabId": t, "args": {"query": query, "region": region or None}}))
+    return _done(s, "find", query, await _call(s, "page.find", {"tabId": t, "args": {"query": query, "region": region or None}}))
 
 
 @mcp.tool()
@@ -250,12 +292,12 @@ async def read(ctx: Context, target: str = "", offset: int = 0, max_chars: int =
     s = _session(ctx)
     t = _tab(s, tab)
     if save:
-        text = await _call("page.read", {"tabId": t, "args": {"target": target or None, "offset": 0, "max": 2_000_000}})
+        text = await _call(s, "page.read", {"tabId": t, "args": {"target": target or None, "offset": 0, "max": 2_000_000}})
         f = s.dir / f"read-{time.strftime('%H%M%S')}.md"
         f.write_text(text)
         return _done(s, "read", f"save {target}", f"saved {len(text):,} chars to {f}\npreview: {text[:300]}")
     args = {"target": target or None, "offset": offset, "max": min(max_chars, 10000)}
-    return _done(s, "read", target, await _call("page.read", {"tabId": t, "args": args}))
+    return _done(s, "read", target, await _call(s, "page.read", {"tabId": t, "args": args}))
 
 
 @mcp.tool()
@@ -264,7 +306,7 @@ async def look(ctx: Context, target: str = "viewport", marks: bool = False, tab:
     "viewport", or "full" (whole page). marks=True draws element numbers on it."""
     s = _session(ctx)
     t = _tab(s, tab)
-    r = await _call("page.look", {"tabId": t, "target": target, "marks": marks}, 60)
+    r = await _call(s, "page.look", {"tabId": t, "target": target, "marks": marks}, 60)
     data = base64.b64decode(r["dataUrl"].split(",", 1)[1])
     f = s.dir / f"look-{time.strftime('%H%M%S')}-{target}.jpg"
     f.write_bytes(data)
@@ -300,7 +342,7 @@ async def act(ctx: Context, steps: list[dict], tab: int = 0) -> str:
     for st in steps:
         if st.get("do") not in ACT_OPS:
             raise ToolError(f"unknown step {st!r}; allowed do: {', '.join(sorted(ACT_OPS))}")
-    r = await _call("page.act", {"tabId": t, "steps": steps}, 180)
+    r = await _call(s, "page.act", {"tabId": t, "steps": steps}, 180)
     s.script.extend(r.get("rec") or [])
     s.script = s.script[-2000:]
     detail = ", ".join(f"{st['do']} {st.get('id', st.get('el', st.get('url', st.get('key', ''))))}".strip() for st in steps)
@@ -313,7 +355,23 @@ async def errors(ctx: Context, clear: bool = False, tab: int = 0) -> str:
     (act() already reports new ones as ERROR lines)."""
     s = _session(ctx)
     t = _tab(s, tab)
-    return _done(s, "errors", "", await _call("page.errors", {"tabId": t, "clear": clear}))
+    return _done(s, "errors", "", await _call(s, "page.errors", {"tabId": t, "clear": clear}))
+
+
+@mcp.tool()
+async def devtools(ctx: Context, cmd: str, params: dict | None = None, tab: int = 0) -> str:
+    """Chrome DevTools Protocol on the current tab (Chromium browsers; Firefox/Zen: Runtime.evaluate only).
+    cmd="Runtime.evaluate" params={"expression":"…","returnByValue":true,"awaitPromise":true} runs JS in the page ·
+    cmd="Network.enable" (or Runtime/Log/Performance.enable) starts capturing; cmd="events"
+    params={"filter":"Network","clear":true,"max":60} lists captured events as short lines (network lines carry
+    request ids) · cmd="Network.getResponseBody" params={"requestId":"…"} · any other CDP method
+    (chromedevtools.github.io/devtools-protocol). Results are capped: ask narrow questions."""
+    s = _session(ctx)
+    t = _tab(s, tab)
+    await _unpaused(s)
+    r = await _call(s, "devtools", {"tabId": t, "cmd": cmd, "params": params or {}}, 60)
+    out = r if isinstance(r, str) else json.dumps(r, ensure_ascii=False, separators=(",", ":"))
+    return _done(s, "devtools", cmd, out)
 
 
 @mcp.tool()
@@ -327,11 +385,11 @@ async def ask_user(ctx: Context, question: str, kind: Literal["confirm", "done",
     ask_id = secrets.token_hex(4)
     fut = asyncio.get_running_loop().create_future()
     _asks[ask_id] = fut
-    await _call("ui.ask", {"tabId": t, "askId": ask_id, "question": question, "kind": kind})
+    await _call(s, "ui.ask", {"tabId": t, "askId": ask_id, "question": question, "kind": kind})
     try:
         answer = await asyncio.wait_for(fut, 900)
     except TimeoutError:
-        await _call("ui.closeAsk", {"tabId": t, "askId": ask_id})
+        await _call(s, "ui.closeAsk", {"tabId": t, "askId": ask_id})
         answer = "(no answer within 15 minutes)"
     finally:
         _asks.pop(ask_id, None)
@@ -358,7 +416,7 @@ async def session(ctx: Context, op: Literal["start", "resume", "state", "note", 
             s = store.new(text or "untitled task", agent, color, cname)
             _bound[ctx.session] = s.id
         store.save(s)
-        await _call("session.ui", {"sessionId": s.id, "patch": {"goal": s.goal}})
+        await _ui(s, {"goal": s.goal})
         return f"session {s.id} started: {s.goal}"
     if op == "resume":
         s = store.get(id)
@@ -383,7 +441,7 @@ async def session(ctx: Context, op: Literal["start", "resume", "state", "note", 
     if op == "site_note":
         host = key
         if not host and s.current_tab is not None:
-            host = _host((await _call("tab.info", {"tabId": s.current_tab}))["url"] or "")
+            host = _host((await _call(s, "tab.info", {"tabId": s.current_tab}))["url"] or "")
         if not host or not text:
             raise ToolError("site_note needs text (and key=host if no current tab)")
         store.add_site_note(host, text[:300])
@@ -398,14 +456,14 @@ async def session(ctx: Context, op: Literal["start", "resume", "state", "note", 
         s.status = "ended"
         s.summary = text[:1000]
         store.save(s)
-        await _call("session.ui", {"sessionId": s.id, "patch": {"on": False}})
+        await _ui(s, {"on": False})
         _bound.pop(ctx.session, None)
         return f"session {s.id} ended"
     raise ToolError(f"unknown op {op}")
 
 
 # ---------------------------------------------------------------------- extension events
-async def on_event(msg: dict) -> None:
+async def on_event(msg: dict, conn: Conn) -> None:
     ev = msg.get("event")
     if ev == "answer":
         fut = _asks.get(msg.get("askId", ""))
@@ -422,7 +480,7 @@ async def on_event(msg: dict) -> None:
         ev_obj = _resume.setdefault(s.id, asyncio.Event())
         ev_obj.clear() if paused else ev_obj.set()
         store.save(s)
-        await bridge.call("session.ui", {"sessionId": s.id, "patch": {"paused": paused}})
+        await bridge.call("session.ui", {"sessionId": s.id, "patch": {"paused": paused}}, 10, conn)
     elif ev == "tab_closed":
         tid = msg.get("tabId")
         s.tabs = [t for t in s.tabs if t != tid]

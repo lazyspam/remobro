@@ -34,6 +34,8 @@ class Session:
     tabs: list[int] = field(default_factory=list)
     current_tab: int | None = None
     group_id: int | None = None
+    browser: str = ""  # bridge key of the browser this session's tabs live in
+    browser_name: str = ""
     notes: dict[str, str] = field(default_factory=dict)
     pages: dict[str, str] = field(default_factory=dict)  # url -> title
     log: list[str] = field(default_factory=list)

@@ -73,10 +73,14 @@ jobs:
           VERSION="${TAG#v}"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           jq --arg v "$VERSION" '.version = $v' extension/manifest.json > m.json && mv m.json extension/manifest.json
+          jq --arg v "$VERSION" '.version = $v' extension/manifest.chromium.json > m.json && mv m.json extension/manifest.chromium.json
           sed -i "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
 
-      - name: Build extension
-        run: npx --yes web-ext@8 build --source-dir extension --artifacts-dir dist --filename remobro-unsigned.zip
+      - name: Build extensions
+        run: |
+          npx --yes web-ext@8 build --source-dir extension --artifacts-dir dist --filename remobro-unsigned.zip
+          scripts/build-chromium.sh "$VERSION"
+          rm -rf dist/chromium  # the zip is what ships
 
       - name: Sign extension (unlisted, self-distributed)
         if: env.AMO_JWT_ISSUER != ''

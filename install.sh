@@ -11,7 +11,7 @@ set -euo pipefail
 REPO="iput-object/remobro"
 VERSION="${REMOBRO_VERSION:-}"
 BIN_DIR="$HOME/.local/bin"
-XPI_DIR="$HOME/Downloads/remobro" # Flatpak browsers can read ~/Downloads
+XPI_DIR="$HOME/Downloads/remobro" # extension files; Flatpak browsers can read ~/Downloads
 ZEN_FLATPAK="app.zen_browser.zen"
 USER_PATH="$PATH"
 
@@ -74,31 +74,52 @@ install_with_uv() {
   fi
 }
 
-# Open a file in the user's Firefox-family browser (that shows the add-on install prompt).
-open_in_browser() {
-  local f="$1"
-  if have flatpak && flatpak info "$ZEN_FLATPAK" >/dev/null 2>&1; then
-    flatpak run "$ZEN_FLATPAK" "file://$f" >/dev/null 2>&1 &
-  elif have zen-browser; then zen-browser "file://$f" >/dev/null 2>&1 &
-  elif have zen; then zen "file://$f" >/dev/null 2>&1 &
-  elif have firefox; then firefox "file://$f" >/dev/null 2>&1 &
-  else return 1
-  fi
+# Firefox family (Zen, Firefox, …): open the signed .xpi, the browser shows "Add remobro?".
+firefox_browser() {
+  if have flatpak && flatpak info "$ZEN_FLATPAK" >/dev/null 2>&1; then echo "flatpak run $ZEN_FLATPAK"; return; fi
+  local b
+  for b in zen-browser zen firefox librewolf floorp; do have "$b" && { echo "$b"; return; }; done
+  return 1
+}
+# Chromium family (Chrome, Brave, Edge, Chromium, Vivaldi)
+chromium_browser() {
+  local b
+  for b in google-chrome-stable google-chrome chromium chromium-browser brave brave-browser microsoft-edge-stable microsoft-edge vivaldi-stable vivaldi; do
+    have "$b" && { echo "$b"; return; }
+  done
+  return 1
+}
+
+install_firefox_extension() {
+  local open xpi="$XPI_DIR/remobro.xpi"
+  open="$(firefox_browser)" || return 0
+  curl -fsSL "$(asset_url remobro.xpi)" -o "$xpi" || { warn "could not download remobro.xpi"; return 0; }
+  $open "file://$xpi" >/dev/null 2>&1 &
+  say "Zen/Firefox is asking to add remobro: click Add."
+}
+
+install_chromium_extension() {
+  local open dir="$XPI_DIR/chromium" zip
+  open="$(chromium_browser)" || return 0
+  zip="$(mktemp)"
+  curl -fsSL "$(asset_url remobro-chromium.zip)" -o "$zip" || { rm -f "$zip"; warn "could not download remobro-chromium.zip"; return 0; }
+  rm -rf "$dir" && mkdir -p "$dir"
+  if have unzip; then unzip -oq "$zip" -d "$dir"; else python3 -m zipfile -e "$zip" "$dir"; fi
+  rm -f "$zip"
+  $open chrome://extensions >/dev/null 2>&1 &
+  say "In $open (chrome://extensions): turn on Developer mode → Load unpacked → pick $dir"
+  say "  (already loaded? just click the reload icon on remobro)"
 }
 
 install_extension() {
   [[ "${REMOBRO_NO_EXTENSION:-}" == 1 ]] && return
   mkdir -p "$XPI_DIR"
-  local xpi="$XPI_DIR/remobro.xpi"
-  if curl -fsSL "$(asset_url remobro.xpi)" -o "$xpi"; then
-    if open_in_browser "$xpi"; then
-      say "Your browser is asking to add remobro: click Add."
-    else
-      say "Install the extension: open $xpi in Zen/Firefox."
-    fi
-  else
-    warn "could not download the extension; get remobro.xpi from https://github.com/$REPO/releases"
+  if ! firefox_browser >/dev/null && ! chromium_browser >/dev/null; then
+    warn "no supported browser found; get the extension from https://github.com/$REPO/releases"
+    return
   fi
+  install_firefox_extension
+  install_chromium_extension
 }
 
 main() {

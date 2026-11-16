@@ -19,10 +19,14 @@ jobs:
         run: npx --yes web-ext@8 lint --source-dir extension --self-hosted
       - name: Build (unsigned)
         run: npx --yes web-ext@8 build --source-dir extension --artifacts-dir dist --filename remobro-unsigned.zip
+      - name: Build Chromium (MV3)
+        run: scripts/build-chromium.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: extension-unsigned
-          path: dist/remobro-unsigned.zip
+          name: extensions
+          path: |
+            dist/remobro-unsigned.zip
+            dist/remobro-chromium.zip
 
   python:
     runs-on: ubuntu-latest
