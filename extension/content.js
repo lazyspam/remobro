@@ -516,6 +516,176 @@
     UI.marks(on ? interactiveIn(modalDialog() || document.body, { viewportOnly: true }).map((el) => [eid(el), el.getBoundingClientRect()]) : null);
   };
 
+  // ---------------------------------------------------------------- layout inspector
+  // Like a mobile layout inspector: any element's box, ancestors, attributes, computed
+  // layout and children, the element stack under a point, or a tree of boxes. Boxes are
+  // viewport CSS px ("@x,y w×h"), the same coordinates click_at uses.
+  const LAYOUT_PROPS = ["display", "position", "zIndex", "overflow", "visibility", "opacity", "flexDirection", "gap",
+    "margin", "padding", "fontSize", "fontWeight", "color", "backgroundColor", "cursor", "pointerEvents"];
+  const DEFAULTS = { position: "static", zIndex: "auto", overflow: "visible", visibility: "visible", opacity: "1",
+    flexDirection: "row", gap: "normal", margin: "0px", padding: "0px", cursor: "auto", pointerEvents: "auto",
+    backgroundColor: "rgba(0, 0, 0, 0)" };
+  const kebab = (k) => k.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase());
+
+  function nodeName(el) {
+    let s = el.tagName.toLowerCase();
+    if (el.id) s += "#" + clip(el.id, 30);
+    const cls = typeof el.className === "string" ? el.className.trim().split(/\s+/).filter(Boolean) : [];
+    if (cls.length) s += "." + cls.slice(0, 2).map((c) => clip(c, 24)).join(".") + (cls.length > 2 ? "…" : "");
+    const r = role(el);
+    if (r) s += `[${r}]`;
+    return s;
+  }
+  function box(el) {
+    const r = el.getBoundingClientRect();
+    const b = `@${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}×${Math.round(r.height)}`;
+    if (!isVisible(el)) return b + " hidden";
+    return inViewport(el) ? b : b + " offscreen";
+  }
+  function ownText(el) {
+    let t = "";
+    for (const n of el.childNodes) if (n.nodeType === 3) t += n.data;
+    t = t.trim() || (el.children.length ? "" : textOf(el));
+    return t ? ` ${q(clip(t, 50))}` : "";
+  }
+  const nodeLine = (el) => `${eid(el)} ${nodeName(el)}${ownText(el)} ${box(el)}`;
+  const kids = (el) => [...el.children, ...(el.shadowRoot ? el.shadowRoot.children : [])].filter((c) => !/^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE|LINK|META)$/.test(c.tagName) && c.tagName !== "REMOBRO-OVERLAY");
+
+  // Alignment check for a group of boxes: shared edges, small offsets (likely bugs),
+  // uneven gaps, overlaps, and children sticking out of their parent.
+  function alignInfo(els, parent, focus) {
+    // only boxes in normal flow: fixed/absolute ones (banners, popovers) aren't laid out with their siblings
+    const inFlow = (e) => !/fixed|absolute/.test(getComputedStyle(e).position);
+    const rs = els.map((e) => [e, e.getBoundingClientRect()]).filter(([e, r]) => r.width >= 1 && r.height >= 1 && isVisible(e) && (e === focus || inFlow(e)));
+    if (rs.length < 2) return [];
+    const out = [];
+    const tag = (e) => (e === focus ? `${eid(e)}◀` : `${eid(e)}`);
+    const r0 = rs[0][1];
+    const row = rs.filter(([, r]) => Math.abs(r.top + r.height / 2 - (r0.top + r0.height / 2)) < Math.max(r0.height, r.height) / 2).length > rs.length / 2;
+    out.push(`${rs.length} boxes laid out as a ${row ? "row" : "column"}`);
+    const metrics = row
+      ? { top: (r) => r.top, bottom: (r) => r.bottom, "center-y": (r) => r.top + r.height / 2 }
+      : { left: (r) => r.left, right: (r) => r.right, "center-x": (r) => r.left + r.width / 2 };
+    const aligned = [];
+    for (const [name, f] of Object.entries(metrics)) {
+      const vals = rs.map(([e, r]) => [e, Math.round(f(r) * 2) / 2]);
+      const counts = new Map();
+      for (const [, v] of vals) counts.set(v, (counts.get(v) || 0) + 1);
+      const [mode, n] = [...counts].sort((a, b) => b[1] - a[1])[0];
+      if (n < 2) continue;
+      const off = vals.filter(([, v]) => v !== mode && Math.abs(v - mode) <= 12);
+      if (n === vals.length) aligned.push(`${name} ${mode}px`);
+      else if (off.length) out.push(`${name}: ${n} at ${mode}px, off by a little: ${off.map(([e, v]) => `${tag(e)} ${v > mode ? "+" : ""}${v - mode}px`).join(", ")}`);
+    }
+    if (aligned.length) out.push("all aligned on: " + aligned.join(", "));
+    // gaps along the main axis
+    const sorted = [...rs].sort((a, b) => (row ? a[1].left - b[1].left : a[1].top - b[1].top));
+    const gaps = [];
+    for (let i = 1; i < sorted.length; i++) {
+      const [pe, pr] = sorted[i - 1], [e, r] = sorted[i];
+      gaps.push([pe, e, Math.round(row ? r.left - pr.right : r.top - pr.bottom)]);
+    }
+    const gc = new Map();
+    for (const [, , g] of gaps) gc.set(g, (gc.get(g) || 0) + 1);
+    const [gmode] = [...gc].sort((a, b) => b[1] - a[1])[0];
+    const odd = gaps.filter(([, , g]) => g !== gmode);
+    if (gaps.length > 1 && odd.length && odd.length < gaps.length)
+      out.push(`gaps: mostly ${gmode}px; ${odd.map(([a, b, g]) => (g < 0 ? `${tag(b)} overlaps ${tag(a)} by ${-g}px` : `${tag(a)}→${tag(b)} ${g}px`)).join(", ")}`);
+    else if (gaps.length) out.push(`gaps: ${gaps.length === 1 || !odd.length ? `${gmode}px` : gaps.map(([, , g]) => g + "px").join(", ")}`);
+    // children outside the parent's content box
+    if (parent && parent !== document.body) {
+      const pr = parent.getBoundingClientRect(), pc = getComputedStyle(parent);
+      const L = pr.left + parseFloat(pc.borderLeftWidth) + parseFloat(pc.paddingLeft), R = pr.right - parseFloat(pc.borderRightWidth) - parseFloat(pc.paddingRight);
+      const T = pr.top + parseFloat(pc.borderTopWidth) + parseFloat(pc.paddingTop), Bm = pr.bottom - parseFloat(pc.borderBottomWidth) - parseFloat(pc.paddingBottom);
+      const clipped = pc.overflow !== "visible";
+      for (const [e, r] of rs) {
+        const sides = [["left", L - r.left], ["right", r.right - R], ["top", T - r.top], ["bottom", r.bottom - Bm]].filter(([, d]) => d > 0.5);
+        if (sides.length) out.push(`${tag(e)} sticks out of ${eid(parent)}'s content box: ${sides.map(([k, d]) => `${k} ${Math.round(d)}px`).join(", ")}${clipped ? " (clipped)" : ""}`);
+      }
+    }
+    return out;
+  }
+
+  function inspectNode(el) {
+    const out = [`node ${nodeLine(el)}`];
+    const path = [];
+    for (let p = el.parentElement; p && p !== document.documentElement; p = p.parentElement) path.unshift(`${eid(p)} ${nodeName(p)}`);
+    if (path.length) out.push("path: " + (path.length > 6 ? ["…", ...path.slice(-6)] : path).join(" > "));
+    const attrs = [...el.attributes].filter((a) => !["id", "class", "style"].includes(a.name)).map((a) => `${a.name}=${q(clip(a.value, 60))}`);
+    if (el.getAttribute("style")) attrs.push(`style=${q(clip(el.getAttribute("style"), 80))}`);
+    if (attrs.length) out.push("attrs: " + attrs.slice(0, 12).join(" "));
+    const cs = getComputedStyle(el);
+    const lay = LAYOUT_PROPS.map((k) => [k, cs[k]]).filter(([k, v]) => v && v !== DEFAULTS[k] && !(k === "gap" && !/flex|grid/.test(cs.display)) && !(k === "flexDirection" && !/flex/.test(cs.display)));
+    out.push("layout: " + lay.map(([k, v]) => `${kebab(k)}=${clip(v, 40)}`).join(" "));
+    out.push(`box: margin ${cs.margin} · border ${cs.borderWidth} · padding ${cs.padding}`);
+    if (el.scrollHeight > el.clientHeight + 4 && /auto|scroll/.test(cs.overflowY)) out.push(`scrolls: ${el.scrollTop}/${el.scrollHeight - el.clientHeight}px`);
+    if (el.scrollWidth > el.clientWidth + 1 && cs.overflowX !== "visible") out.push(`content clipped horizontally by ${el.scrollWidth - el.clientWidth}px`);
+    const par = el.parentElement;
+    if (par && par !== document.documentElement) {
+      const sib = alignInfo(kids(par), par, el);
+      if (sib.length) out.push(`among siblings in ${eid(par)} (◀ = this):`, ...sib.map((l) => "  " + l));
+    }
+    const ch = kids(el);
+    if (ch.length) {
+      out.push(`children (${ch.length}):`);
+      for (const c of ch.slice(0, 25)) out.push("  " + nodeLine(c) + (c.children.length ? ` +${c.children.length}` : ""));
+      if (ch.length > 25) out.push(`  … +${ch.length - 25} more`);
+      const al = alignInfo(ch, el);
+      if (al.length) out.push("children alignment:", ...al.map((l) => "  " + l));
+    }
+    return out.join("\n");
+  }
+
+  // Indented tree of visible boxes. Chains of single-child wrappers fold into one line,
+  // and long runs of look-alike siblings collapse.
+  function inspectTree(root, depth, max) {
+    const out = [];
+    const walk = (el, d) => {
+      if (out.length >= max) return;
+      let chain = [el];
+      while (true) {
+        const ch = kids(chain[chain.length - 1]).filter(isVisible);
+        if (ch.length !== 1 || ownText(chain[chain.length - 1])) break;
+        chain.push(ch[0]);
+      }
+      const last = chain[chain.length - 1];
+      const head = chain.length > 1 ? chain.slice(0, -1).map(nodeName).join(" > ") + " > " : "";
+      const ch = kids(last).filter(isVisible);
+      out.push(`${"  ".repeat(d)}${eid(last)} ${head}${nodeName(last)}${ownText(last)} ${box(last)}${d >= depth && ch.length ? ` +${ch.length}` : ""}`);
+      if (d >= depth) return;
+      for (let i = 0; i < ch.length && out.length < max; ) {
+        let j = i + 1;
+        const sg = sig(ch[i]);
+        while (j < ch.length && sig(ch[j]) === sg) j++;
+        if (j - i > 4) {
+          for (let k = i; k < i + 2; k++) walk(ch[k], d + 1);
+          out.push(`${"  ".repeat(d + 1)}… +${j - i - 2} similar ${nodeName(ch[i])} ${eid(ch[i + 2])}–${eid(ch[j - 1])}`);
+          i = j;
+        } else walk(ch[i++], d + 1);
+      }
+    };
+    walk(root, 0);
+    if (out.length >= max) out.push(`… (tree truncated at ${max} lines: inspect a child, or raise max)`);
+    return out.join("\n");
+  }
+
+  ZP.inspect = ({ target, at, tree = false, depth = 2, max = 80 } = {}) => {
+    if (at) {
+      const [x, y] = String(at).split(/[ ,]+/).map(Number);
+      const stack = document.elementsFromPoint(x, y).filter((e) => !e.closest?.("remobro-overlay") && e !== document.documentElement);
+      if (!stack.length) return `nothing at ${x},${y} (viewport is ${innerWidth}×${innerHeight})`;
+      UI.inspectBox(stack[0], `${eid(stack[0])} ${nodeName(stack[0])}`);
+      return [`at ${x},${y}, top first (a click hits the first):`, ...stack.slice(0, 9).map((e, i) => `${i + 1}. ${nodeLine(e)}`), stack.length > 9 ? `… +${stack.length - 9} more` : ""].filter(Boolean).join("\n");
+    }
+    let el;
+    if (target === "picked") {
+      el = ZP.picked?.deref();
+      if (!el?.isConnected) throw new Error("nothing picked: ask the user to click Point in the remobro bar, then the element");
+    } else el = getTarget(target) || document.body;
+    UI.inspectBox(el, `${eid(el)} ${nodeName(el)}`);
+    return tree ? inspectTree(el, Math.min(depth, 8), Math.min(max, 300)) : inspectNode(el);
+  };
+
   // ---------------------------------------------------------------- effects
   // Snapshot before an action, diff after it: the agent learns what changed without
   // re-reading the page.
@@ -1117,7 +1287,7 @@
       root = host.attachShadow({ mode: "closed" });
       root.innerHTML = `<style>${css}</style><div class="border"></div>
         <div class="pill"><span class="dot"></span><span class="lbl"></span><span class="step"></span>
-        <button data-a="pause">Pause</button><button data-a="min" class="icon" title="Minimize">–</button></div>
+        <button data-a="point" class="icon" title="Point at an element to show the agent">◎</button><button data-a="pause">Pause</button><button data-a="min" class="icon" title="Minimize">–</button></div>
         <div class="bubble" data-a="min"></div>
         <div class="cursor" data-k="arrow">
           <svg class="arrow" viewBox="0 0 24 24"><path d="M4 2 L4 20 L9 15 L13 23 L16 21.5 L12 13.8 L19 13.5 Z" fill="var(--c)" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg>
@@ -1140,9 +1310,63 @@
       place(cx, cy);
       root.addEventListener("click", (e) => {
         const a = e.target.closest?.("[data-a]")?.dataset.a;
+        if (a === "point") return pickMode();
         if (a) B.runtime.sendMessage({ ui: a });
       });
       document.documentElement.appendChild(host);
+    }
+    // Point mode: hover outlines the element under the mouse, click picks it for the agent
+    // (inspect("picked")), Esc cancels. Page handlers don't see these clicks.
+    function pickMode() {
+      const prevStep = state.step;
+      state.step = "click the element to show the agent (Esc cancels)";
+      render();
+      const over = (e) => {
+        const t = e.composedPath?.()[0];
+        if (t?.nodeType === 1 && !host.contains(t)) inspectBoxFn(t, `${eid(t)} ${nodeName(t)}`);
+      };
+      const stop = (picked) => {
+        removeEventListener("mouseover", over, true);
+        removeEventListener("click", click, true);
+        removeEventListener("keydown", key, true);
+        for (const t of ["mousedown", "mouseup", "pointerdown", "pointerup"]) removeEventListener(t, swallow, true);
+        state.step = picked ? `you pointed at ${eid(picked)} ${nodeName(picked)}: tell the agent what's wrong` : prevStep;
+        render();
+      };
+      const swallow = (e) => {
+        if (!host.contains(e.composedPath?.()[0])) e.preventDefault(), e.stopImmediatePropagation();
+      };
+      const click = (e) => {
+        const t = e.composedPath?.()[0];
+        if (host.contains(t)) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        ZP.picked = new WeakRef(t);
+        stop(t);
+      };
+      const key = (e) => {
+        if (e.key === "Escape") e.preventDefault(), stop(null);
+      };
+      addEventListener("mouseover", over, true);
+      addEventListener("click", click, true);
+      addEventListener("keydown", key, true);
+      for (const t of ["mousedown", "mouseup", "pointerdown", "pointerup"]) addEventListener(t, swallow, true);
+    }
+    let ibTimer = null;
+    function inspectBoxFn(el, text) {
+      if (!state.on) return;
+      ensure();
+      root.querySelector(".inspect")?.remove();
+      const r = el.getBoundingClientRect();
+      const b = document.createElement("div");
+      b.className = "hl inspect";
+      Object.assign(b.style, { left: r.left - 2 + "px", top: r.top - 2 + "px", width: r.width + "px", height: r.height + "px", borderColor: "#f5a623", background: "transparent" });
+      b.innerHTML = "<span></span>";
+      b.firstChild.textContent = text;
+      b.firstChild.style.background = "#f5a623";
+      root.appendChild(b);
+      clearTimeout(ibTimer);
+      ibTimer = setTimeout(() => b.remove(), 6000);
     }
     function render() {
       if (!state.on) {
@@ -1205,6 +1429,10 @@
           setTimeout(() => hl.remove(), 1200);
         }
         if (watching()) await sleep(60 + Math.random() * 70); // aim before clicking
+      },
+      // persistent outline on the element the agent is inspecting (like a layout inspector)
+      inspectBox(el, text) {
+        inspectBoxFn(el, text);
       },
       cursorAt(x, y) {
         if (state.on) place(x, y);
@@ -1299,6 +1527,7 @@
       case "read": return ZP.read(args);
       case "rect": return args.target ? ZP.rectOf(args) : ZP.viewportRect(args.full);
       case "marks": ZP.marks(args.on); return true;
+      case "inspect": return ZP.inspect(args);
       case "fxBegin": ZP.fxBegin(); return true;
       case "fxEnd": return ZP.fxEnd();
       case "act": return ZP.act(args.step, { last: args.last });

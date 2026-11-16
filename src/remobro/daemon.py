@@ -36,6 +36,7 @@ your question, and batch actions.
 Escalation ladder (cheap → expensive):
 open()/act() already return a page outline or a change report → outline() page map with region \
 ids rN → elements(region) or find("text") numbered controls → read(rN or heading) text → \
+inspect(N or rN) box/attributes/layout/children, inspect(at="x,y") what is under a point → \
 look(id|rN) cropped screenshot → look("viewport"/"full", marks=True) only when layout/visuals matter.
 
 Acting: act([...steps]) with element numbers or labels, e.g. [{"do":"fill","id":13,"text":"x"},\
@@ -298,6 +299,18 @@ async def read(ctx: Context, target: str = "", offset: int = 0, max_chars: int =
         return _done(s, "read", f"save {target}", f"saved {len(text):,} chars to {f}\npreview: {text[:300]}")
     args = {"target": target or None, "offset": offset, "max": min(max_chars, 10000)}
     return _done(s, "read", target, await _call(s, "page.read", {"tabId": t, "args": args}))
+
+
+@mcp.tool()
+async def inspect(ctx: Context, target: str = "", at: str = "", tree: bool = False, depth: int = 2, max: int = 80, tab: int = 0) -> str:
+    """Layout inspector. target=element number or rN (default <body>): its box (@x,y w×h, viewport px as in
+    click_at), ancestor path, attributes, computed layout and numbered children to drill into.
+    at="x,y": the element stack under that point, top first (what a click there hits, e.g. a covering overlay).
+    tree=True: indented tree of visible boxes below target, `depth` levels, wrappers folded."""
+    s = _session(ctx)
+    t = _tab(s, tab)
+    args = {"target": target or None, "at": at or None, "tree": tree, "depth": depth, "max": max}
+    return _done(s, "inspect", target or at, await _call(s, "page.inspect", {"tabId": t, "args": args}))
 
 
 @mcp.tool()

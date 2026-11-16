@@ -34,6 +34,13 @@ remobro replay ~/.local/share/remobro/sessions/<id>/test.json
 
 Agents can add assertions (`expect`), and console errors or failed requests show up in every result.
 
+## Layout problems
+
+Something looks off? Click **◎** in the remobro bar, click the element, and tell your agent
+*"this isn't aligned"*. It inspects that element like a layout inspector: exact box, margins and
+padding, how it lines up with its siblings (`left: 3 at 37px, off by a little: 6 +3px`), uneven gaps,
+content that sticks out or gets clipped, and what covers a point.
+
 ## DevTools
 
 Agents can use the Chrome DevTools Protocol on their tab: run JavaScript, watch network and console,

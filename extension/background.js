@@ -408,6 +408,8 @@ async function handle(method, p) {
       return cs(+p.tabId, "find", p.args);
     case "page.read":
       return cs(+p.tabId, "read", p.args);
+    case "page.inspect":
+      return cs(+p.tabId, "inspect", p.args);
 
     case "page.errors": {
       const tabId = +p.tabId;
