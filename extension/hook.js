@@ -14,6 +14,23 @@
     return;
   }
 
+  // Firefox: remobro's synthetic pointer (content.js SYNTH_POINTER) isn't a real active
+  // pointer; let the page's pointer capture calls for it pass instead of throwing.
+  try {
+    const proto = window.wrappedJSObject.Element.prototype;
+    for (const m of ["setPointerCapture", "releasePointerCapture"]) {
+      const orig = proto[m];
+      exportFunction(
+        function (id) {
+          if (id === 7331) return;
+          return orig.call(this, id);
+        },
+        proto,
+        { defineAs: m },
+      );
+    }
+  } catch {}
+
   // Firefox: wrap the page's console.error from here, through the X-ray wrapper.
   const str = (x) => {
     try {

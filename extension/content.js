@@ -792,9 +792,13 @@
     return { x: r.left + r.width / 2, y: r.top + r.height / 2, r };
   }
 
+  // Our pointer events are synthetic, so no real pointer has this id. Apps that call
+  // setPointerCapture(e.pointerId) (canvas editors, sliders, drag and drop) would get
+  // "Invalid pointer id"; hook.js / hook-main.js let capture calls with this id pass.
+  const SYNTH_POINTER = 7331;
   function mouse(el, type, x, y, extra = {}) {
     const Ctor = type.startsWith("pointer") ? PointerEvent : MouseEvent;
-    el.dispatchEvent(new Ctor(type, { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, view: window, button: 0, buttons: type.endsWith("down") ? 1 : 0, pointerType: "mouse", isPrimary: true, ...extra }));
+    el.dispatchEvent(new Ctor(type, { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, view: window, button: 0, buttons: type.endsWith("down") ? 1 : 0, pointerType: "mouse", pointerId: SYNTH_POINTER, isPrimary: true, ...extra }));
   }
 
   async function prep(el) {
@@ -1067,7 +1071,7 @@
         const pt = (x, y) => ({ x: +x, y: +y, t: document.elementFromPoint(+x, +y) || document.body });
         const a = pt(s.x, s.y);
         await UI.pointTo(a.x, a.y);
-        const opt = { pointerId: 1 };
+        const opt = {};
         mouse(a.t, "pointermove", a.x, a.y, opt);
         mouse(a.t, "mousemove", a.x, a.y);
         if (op === "move") break;
@@ -1151,7 +1155,7 @@
     return LOGOS[k];
   };
   const UI = (() => {
-    let host, root, pill, label, stepEl, askBox, cursor, border, bubble, marksLayer, state = { on: false };
+    let host, root, pill, logo, hand, label, stepEl, askBox, cursor, border, marksLayer, state = { on: false };
     let cx = 0, cy = 0, kindNow = "arrow";
     const HOT = { arrow: [3.7, 1.8], hand: [9.5, 3.5], text: [11, 11] }; // hotspot per cursor shape
     const watching = () => state.on && !state.fast && !document.hidden;
@@ -1224,38 +1228,35 @@
         box-shadow:inset 0 0 40px 6px color-mix(in srgb,var(--c) 75%,transparent);animation:breathe 2.6s ease-in-out infinite}
       .border.paused{animation:none;opacity:.5;box-shadow:inset 0 0 40px 6px rgba(136,136,136,.55)}
       @keyframes breathe{0%,100%{opacity:.35}50%{opacity:1}}
-      @media (prefers-reduced-motion:reduce){.border{animation:none;opacity:.7}.dot{animation:none}}
-      .pill{position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:2147483647;
-        font:13px/1.35 system-ui,sans-serif;color:#fff;background:rgba(22,22,26,.92);
-        border:1px solid var(--c);border-radius:999px;padding:6px 8px 6px 12px;display:flex;gap:8px;
-        align-items:center;max-width:min(720px,92vw);box-shadow:0 6px 24px rgba(0,0,0,.35);pointer-events:auto}
-      .dot{width:9px;height:9px;border-radius:50%;background:var(--c);flex:none;animation:p 1.4s infinite}
-      .paused .dot{animation:none;background:#888}
-      @keyframes p{50%{opacity:.35}}
-      .lbl{font-weight:600;white-space:nowrap}
-      .step{opacity:.8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
-      button{font:inherit;color:#fff;background:#ffffff1f;border:0;border-radius:999px;padding:3px 10px;cursor:pointer}
-      button:hover{background:#ffffff38}
-      button.icon{padding:3px 8px;line-height:1;opacity:.75}
-      button.icon:hover{opacity:1}
-      .bubble{position:fixed;top:12px;right:14px;z-index:2147483647;width:34px;height:34px;border-radius:50%;
-        display:none;place-items:center;cursor:pointer;pointer-events:auto;user-select:none;
-        font:700 15px/1 system-ui,sans-serif;color:#141414;background:var(--c);
-        box-shadow:0 4px 14px rgba(0,0,0,.35),inset 0 -3px 0 rgba(0,0,0,.12);
-        animation:bob 3s ease-in-out infinite;transition:transform .15s}
-      .bubble:hover{transform:scale(1.12)}
-      .bubble::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:2px solid var(--c);
-        animation:ping 1.8s ease-out infinite}
-      .bubble.paused{background:#9a9a9a;animation:none}
-      .bubble svg{width:14px;height:14px}
-      .bubble svg.logo{width:19px;height:19px}
+      @media (prefers-reduced-motion:reduce){.border{animation:none;opacity:.7}.logo::after{animation:none}}
+      /* the island: top centre; click it to collapse to just the logo, click again to expand */
+      /* 8px grid: 38px tall (1px border + 5px padding + 26px circles), 10px between items */
+      .pill{position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:2147483647;box-sizing:border-box;
+        height:38px;min-width:38px;padding:5px;display:flex;align-items:center;gap:10px;
+        max-width:min(640px,calc(100vw - 32px));font:13px/16px system-ui,sans-serif;color:#fff;
+        background:rgba(22,22,26,.94);border:1px solid var(--c);border-radius:19px;
+        box-shadow:0 6px 24px rgba(0,0,0,.35);pointer-events:auto;cursor:pointer;user-select:none}
       .pill.paused{border-color:#777}
+      .logo{position:relative;width:26px;height:26px;border-radius:50%;flex:none;display:grid;place-items:center;
+        background:var(--c);color:#141414;font:700 13px/1 system-ui,sans-serif}
+      .logo svg{width:16px;height:16px}
+      .logo::after{content:"";position:absolute;inset:-3px;border-radius:50%;border:2px solid var(--c);animation:ping 1.8s ease-out infinite}
+      .paused .logo{background:#9a9a9a}
+      .paused .logo::after{display:none}
+      @keyframes ping{0%{opacity:.7;transform:scale(.9)}100%{opacity:0;transform:scale(1.45)}}
+      .txt{display:flex;align-items:baseline;min-width:0;white-space:nowrap}
+      .lbl{font-weight:600}
+      .step{opacity:.72;overflow:hidden;text-overflow:ellipsis;min-width:0}
+      .step:not(:empty)::before{content:"·";margin:0 6px}
+      .hand{width:26px;height:26px;flex:none;border:0;border-radius:50%;padding:0;display:grid;place-items:center;
+        color:#fff;background:#ffffff22;cursor:pointer}
+      .hand:hover{background:#ffffff40}
+      .hand svg{width:15px;height:15px}
+      .hand:focus-visible{outline:2px solid var(--c);outline-offset:1px}
+      .pill.min{gap:0;width:38px}
+      .pill.min .txt,.pill.min .hand{display:none}
       .cursor.away{display:none}
-      .bubble.paused::after{display:none}
-      @keyframes bob{0%,100%{translate:0 0}50%{translate:0 -3px}}
-      @keyframes ping{0%{opacity:.7;transform:scale(.9)}100%{opacity:0;transform:scale(1.6)}}
-      @media (prefers-reduced-motion:reduce){.bubble,.bubble::after{animation:none}}
-      .ask{position:fixed;top:52px;left:50%;transform:translateX(-50%);z-index:2147483647;
+      .ask{position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:2147483647;
         font:14px/1.45 system-ui,sans-serif;color:#fff;background:rgba(22,22,26,.96);border:1px solid var(--c);
         border-radius:14px;padding:12px 14px;width:min(460px,90vw);box-shadow:0 10px 30px rgba(0,0,0,.4);pointer-events:auto}
       .ask p{margin:0 0 10px;white-space:pre-wrap}
@@ -1286,9 +1287,7 @@
       host = document.createElement("remobro-overlay");
       root = host.attachShadow({ mode: "closed" });
       root.innerHTML = `<style>${css}</style><div class="border"></div>
-        <div class="pill"><span class="dot"></span><span class="lbl"></span><span class="step"></span>
-        <button data-a="point" class="icon" title="Point at an element to show the agent">◎</button><button data-a="pause">Pause</button><button data-a="min" class="icon" title="Minimize">–</button></div>
-        <div class="bubble" data-a="min"></div>
+        <div class="pill"><span class="logo"></span><span class="txt"><span class="lbl"></span><span class="step"></span></span><button class="hand" data-a="pause"></button></div>
         <div class="cursor" data-k="arrow">
           <svg class="arrow" viewBox="0 0 24 24"><path d="M4 2 L4 20 L9 15 L13 23 L16 21.5 L12 13.8 L19 13.5 Z" fill="var(--c)" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg>
           <svg class="hand" viewBox="0 0 24 24"><path d="M9 11.5V4.2a1.6 1.6 0 0 1 3.2 0V10h.4V8.4a1.6 1.6 0 0 1 3.2 0V10h.4V9.2a1.6 1.6 0 0 1 3.2 0v6.1c0 3.9-2.6 6.7-6.6 6.7-2.6 0-4.3-1.1-5.5-3.2L4 14.3a1.5 1.5 0 0 1 2.5-1.7L9 15.2z" fill="var(--c)" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/></svg>
@@ -1300,7 +1299,8 @@
       label = root.querySelector(".lbl");
       stepEl = root.querySelector(".step");
       cursor = root.querySelector(".cursor");
-      bubble = root.querySelector(".bubble");
+      logo = root.querySelector(".logo");
+      hand = root.querySelector(".hand");
       // continue from where the cursor was on the previous page
       try {
         [cx, cy] = JSON.parse(sessionStorage.getItem("__zp_cursor") || "null") || [innerWidth * 0.62, innerHeight * 0.3];
@@ -1310,47 +1310,25 @@
       place(cx, cy);
       root.addEventListener("click", (e) => {
         const a = e.target.closest?.("[data-a]")?.dataset.a;
-        if (a === "point") return pickMode();
-        if (a) B.runtime.sendMessage({ ui: a });
+        if (a) B.runtime.sendMessage({ ui: a }); // ✋ / ▶
+        else if (e.target.closest?.(".pill")) B.runtime.sendMessage({ ui: "min" }); // the island itself: expand/collapse
       });
-      document.documentElement.appendChild(host);
-    }
-    // Point mode: hover outlines the element under the mouse, click picks it for the agent
-    // (inspect("picked")), Esc cancels. Page handlers don't see these clicks.
-    function pickMode() {
-      const prevStep = state.step;
-      state.step = "click the element to show the agent (Esc cancels)";
-      render();
-      const over = (e) => {
+      // Alt+hover outlines an element, Alt+click points it out to the agent (inspect("picked"))
+      addEventListener("mouseover", (e) => {
         const t = e.composedPath?.()[0];
-        if (t?.nodeType === 1 && !host.contains(t)) inspectBoxFn(t, `${eid(t)} ${nodeName(t)}`);
-      };
-      const stop = (picked) => {
-        removeEventListener("mouseover", over, true);
-        removeEventListener("click", click, true);
-        removeEventListener("keydown", key, true);
-        for (const t of ["mousedown", "mouseup", "pointerdown", "pointerup"]) removeEventListener(t, swallow, true);
-        state.step = picked ? `you pointed at ${eid(picked)} ${nodeName(picked)}: tell the agent what's wrong` : prevStep;
-        render();
-      };
-      const swallow = (e) => {
-        if (!host.contains(e.composedPath?.()[0])) e.preventDefault(), e.stopImmediatePropagation();
-      };
-      const click = (e) => {
+        if (e.altKey && state.on && t?.nodeType === 1 && !host.contains(t)) inspectBoxFn(t, `${eid(t)} ${nodeName(t)}`);
+      }, true);
+      addEventListener("click", (e) => {
         const t = e.composedPath?.()[0];
-        if (host.contains(t)) return;
+        if (!e.altKey || !state.on || t?.nodeType !== 1 || host.contains(t)) return;
         e.preventDefault();
         e.stopImmediatePropagation();
         ZP.picked = new WeakRef(t);
-        stop(t);
-      };
-      const key = (e) => {
-        if (e.key === "Escape") e.preventDefault(), stop(null);
-      };
-      addEventListener("mouseover", over, true);
-      addEventListener("click", click, true);
-      addEventListener("keydown", key, true);
-      for (const t of ["mousedown", "mouseup", "pointerdown", "pointerup"]) addEventListener(t, swallow, true);
+        inspectBoxFn(t, `${eid(t)} ${nodeName(t)}`);
+        state.step = `you pointed at ${eid(t)} ${nodeName(t)}: tell ${state.agent || "the agent"} what's wrong`;
+        render();
+      }, true);
+      document.documentElement.appendChild(host);
     }
     let ibTimer = null;
     function inspectBoxFn(el, text) {
@@ -1378,25 +1356,24 @@
       root.host.style.setProperty("--c", state.color || "#f76f53");
       root.querySelector("style").textContent = css.replace(/var\(--c\)/g, state.color || "#f76f53");
       border.className = "border" + (state.paused ? " paused" : "");
-      pill.className = "pill" + (state.paused ? " paused" : "");
+      pill.className = "pill" + (state.paused ? " paused" : "") + (state.min ? " min" : "");
       const who = state.agent || "AI";
-      label.textContent = state.paused ? `${who} paused · your turn` : `${who} is driving`;
-      pill.style.display = state.min ? "none" : "";
-      bubble.style.display = state.min ? "grid" : "none";
-      bubble.className = "bubble" + (state.paused ? " paused" : "");
-      const face = state.paused ? "paused" : who;
-      if (bubble.dataset.face !== face) {
+      label.textContent = state.paused ? `${who} paused` : `${who} is driving`;
+      const face = `${who}|${!!state.paused}`;
+      if (logo.dataset.face !== face) {
         // rebuilt only when the agent or pause state changes, not on every step
-        bubble.dataset.face = face;
-        if (state.paused) bubble.innerHTML = `<svg viewBox="0 0 14 14"><rect x="2.5" y="2" width="3.2" height="10" rx="1.2" fill="#141414"/><rect x="8.3" y="2" width="3.2" height="10" rx="1.2" fill="#141414"/></svg>`;
-        else if (logoFor(who)) bubble.innerHTML = `<svg class="logo" viewBox="0 0 24 24"><path fill="#141414" d="${logoFor(who)}"/></svg>`;
-        else bubble.textContent = who[0].toUpperCase();
+        logo.dataset.face = face;
+        if (logoFor(who)) logo.innerHTML = `<svg viewBox="0 0 24 24"><path fill="#141414" d="${logoFor(who)}"/></svg>`;
+        else logo.textContent = who[0].toUpperCase();
+        hand.innerHTML = state.paused
+          ? `<svg viewBox="0 0 24 24"><path fill="currentColor" d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>`
+          : `<svg viewBox="0 0 24 24"><path fill="currentColor" d="M18 6.5a1.5 1.5 0 0 0-3 0V11h-.5V4a1.5 1.5 0 0 0-3 0v7H11V5a1.5 1.5 0 0 0-3 0v8.6l-1.7-2.2a1.6 1.6 0 0 0-2.5 2l3.4 4.6C8.6 20.4 10.6 22 13.4 22h.6c3.3 0 6-2.7 6-6V9a1.5 1.5 0 0 0-3 0v2H17V6.5z"/></svg>`;
+        hand.title = state.paused ? `Resume: give the wheel back to ${who}` : `Pause: take the wheel from ${who}`;
       }
+      pill.title = `${state.min ? "Click to expand" : "Click to collapse"} · Alt+click an element to point it out to ${who}`;
       cursor.classList.toggle("away", !!state.paused); // your turn: hide the agent's cursor
-      bubble.title = `${label.textContent}${state.step ? " · " + state.step : ""}\nclick to expand`;
       root.querySelector(".tag").textContent = state.agent || "AI";
-      stepEl.textContent = state.step ? "· " + state.step : state.goal ? "· " + state.goal : "";
-      pill.querySelector("[data-a=pause]").textContent = state.paused ? "Resume" : "Pause";
+      stepEl.textContent = state.paused ? "your turn" : state.step || state.goal || "";
     }
     return {
       set(s) {
@@ -1495,7 +1472,7 @@
         if (h && !st) {
           st = document.createElement("style");
           st.className = "hide";
-          st.textContent = ".border,.pill,.bubble,.cursor,.hl,.ask,.ripple{display:none!important}";
+          st.textContent = ".border,.pill,.cursor,.hl,.ask,.ripple{display:none!important}";
           root.appendChild(st);
         } else if (!h) st?.remove();
         // wait until the change is painted (rAF is paused in background tabs: cap the wait)

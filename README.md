@@ -27,7 +27,7 @@ install updates by itself.
 Ask your agent: *"use remobro to check the checkout flow on shop.example"*.
 
 - Agent tabs glow in the agent's colour, grouped per task. Your own tabs are never touched.
-- A floating bar shows what it's doing. **Pause** hands you the tab; **Resume** lets it continue. Minimize it to a little bubble.
+- A small island at the top shows what it's doing. ✋ takes the wheel, ▶ gives it back; click the island to collapse or expand it.
 - For logins, captchas or anything risky (buying, sending, deleting) it asks you first.
 
 ## Testing websites
@@ -43,7 +43,7 @@ Agents can add assertions (`expect`), and console errors or failed requests show
 
 ## Layout problems
 
-Something looks off? Click **◎** in the remobro bar, click the element, and tell your agent
+Something looks off? **Alt+click** the element in an agent tab and tell your agent
 *"this isn't aligned"*. It inspects that element like a layout inspector: exact box, margins and
 padding, how it lines up with its siblings (`left: 3 at 37px, off by a little: 6 +3px`), uneven gaps,
 content that sticks out or gets clipped, and what covers a point.

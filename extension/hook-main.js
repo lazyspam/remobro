@@ -4,6 +4,15 @@
 (() => {
   if (window.__remobroHooked) return;
   Object.defineProperty(window, "__remobroHooked", { value: true });
+  // remobro's synthetic pointer (content.js SYNTH_POINTER) isn't a real active pointer:
+  // let pointer capture calls for it pass instead of throwing "Invalid pointer id".
+  for (const m of ["setPointerCapture", "releasePointerCapture"]) {
+    const orig = Element.prototype[m];
+    Element.prototype[m] = function (id) {
+      if (id === 7331) return;
+      return orig.call(this, id);
+    };
+  }
   const emit = (s) => document.dispatchEvent(new CustomEvent("__remobro_err", { detail: String(s) }));
   const str = (x) => {
     try {
