@@ -525,8 +525,14 @@ async def on_connect(conn: Conn) -> None:
         log.info("asking %s to reload its extension (%s → %s)", conn.name, conn.version, VERSION)
         await bridge.call("ext.reload", {}, 10, conn)
         return
-    if UPDATE["latest"]:
-        await bridge.call("ext.notice", {"update": UPDATE["latest"]}, 10, conn)
+    try:
+        if update.newer(VERSION, conn.version):
+            # signed (Zen/Firefox) extension behind the bridge: its daily update check hasn't run yet
+            await bridge.call("ext.notice", {"outdated": VERSION}, 10, conn)
+        elif UPDATE["latest"]:
+            await bridge.call("ext.notice", {"update": UPDATE["latest"]}, 10, conn)
+    except BridgeError:
+        pass  # older extensions don't know ext.notice
 
 
 bridge.on_connect = on_connect

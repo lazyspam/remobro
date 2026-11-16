@@ -375,7 +375,11 @@ async function handle(method, p) {
     case "ext.notice":
       ACTION.setBadgeText({ text: "↑" });
       ACTION.setBadgeBackgroundColor({ color: "#4c8bf5" });
-      ACTION.setTitle({ title: `remobro ${p.update} is available: run "remobro update"` });
+      ACTION.setTitle({
+        title: p.outdated
+          ? `remobro extension ${B.runtime.getManifest().version} is older than the bridge (${p.outdated}): about:addons → ⚙ → Check for Updates`
+          : `remobro ${p.update} is available: run "remobro update"`,
+      });
       return true;
 
     case "tab.close":
