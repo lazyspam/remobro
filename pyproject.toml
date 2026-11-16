@@ -1,0 +1,30 @@
+[project]
+name = "zen-pilot"
+version = "0.1.0"
+description = "Let any AI agent (Claude Code, Codex, Gemini CLI, LangChain) drive your real Zen browser over MCP, token-efficiently."
+requires-python = ">=3.12"
+dependencies = [
+    "mcp>=1.30.0",
+    "uvicorn>=0.54.0",
+    "starlette>=1.10.0",
+    "websockets>=17.4",
+]
+
+[project.optional-dependencies]
+# Standalone runner for API keys / local models (Ollama). Not needed for Claude Code or Codex.
+runner = [
+    "langchain>=1.5.0",
+    "langchain-mcp-adapters>=0.3.2",
+    "langchain-anthropic>=1.7.10",
+    "langchain-openai>=1.8.0",
+    "langchain-google-genai>=4.5.0",
+    "langchain-ollama>=1.1.0",
+    "python-dotenv>=1.2.4",
+]
+
+[project.scripts]
+zen-pilot = "zen_pilot.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.13.6,<0.14.0"]
+build-backend = "uv_build"

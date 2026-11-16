@@ -1,0 +1,194 @@
+"""zen-pilot command line."""
+
+from __future__ import annotations
+
+import argparse
+import shutil
+import subprocess
+import sys
+import zipfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+EXT_DIR = ROOT / "extension"
+SERVICE = Path.home() / ".config/systemd/user/zen-pilot.service"
+
+
+def cmd_daemon(_: argparse.Namespace) -> None:
+    from .daemon import serve
+
+    serve()
+
+
+def cmd_url(_: argparse.Namespace) -> None:
+    from .daemon import mcp_url
+
+    print(mcp_url())
+
+
+def cmd_pack(args: argparse.Namespace) -> None:
+    """Zip the extension where the Zen Flatpak can read it (~/Downloads)."""
+    out = Path(args.out).expanduser()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+        for f in sorted(EXT_DIR.rglob("*")):
+            if f.is_file():
+                z.write(f, f.relative_to(EXT_DIR))
+    print(out)
+
+
+def cmd_install(args: argparse.Namespace) -> None:
+    """Run the daemon as a systemd user service and register the MCP server with Claude Code and Codex."""
+    from .daemon import mcp_url
+
+    uv = shutil.which("uv") or "uv"
+    SERVICE.parent.mkdir(parents=True, exist_ok=True)
+    SERVICE.write_text(
+        "[Unit]\nDescription=zen-pilot: MCP bridge to the Zen browser\n\n"
+        f"[Service]\nExecStart={uv} run --project {ROOT} zen-pilot daemon\nRestart=on-failure\nRestartSec=2\n\n"
+        "[Install]\nWantedBy=default.target\n"
+    )
+    subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
+    subprocess.run(["systemctl", "--user", "enable", "--now", "zen-pilot.service"], check=True)
+    subprocess.run(["systemctl", "--user", "restart", "zen-pilot.service"], check=True)
+    print(f"daemon service: {SERVICE}")
+
+    url = mcp_url()
+    if shutil.which("claude") and "claude" in args.clients:
+        subprocess.run(["claude", "mcp", "remove", "-s", "user", "zen"], capture_output=True)
+        subprocess.run(["claude", "mcp", "add", "-s", "user", "--transport", "http", "zen", url], check=True)
+        print("registered with Claude Code (user scope) as 'zen'")
+    if shutil.which("codex") and "codex" in args.clients:
+        subprocess.run(["codex", "mcp", "remove", "zen"], capture_output=True)
+        subprocess.run(["codex", "mcp", "add", "zen", "--url", url], check=True)
+        print("registered with Codex as 'zen'")
+    print("MCP URL (for other clients):", url)
+
+
+def cmd_call(args: argparse.Namespace) -> None:
+    """Call one zen tool from the shell (for shell-only agents and scripts). Keeps a session between calls."""
+    import asyncio
+    import json
+
+    from mcp import ClientSession, types
+    from mcp.client.streamable_http import streamablehttp_client
+
+    from .daemon import CONFIG_DIR, mcp_url
+
+    import logging
+
+    logging.disable(logging.INFO)
+    sess_file = CONFIG_DIR / f"cli-session-{args.as_}"
+    params = json.loads(args.json) if args.json else {}
+
+    async def run() -> int:
+        async with streamablehttp_client(mcp_url()) as (r, w, _):
+            info = types.Implementation(name=f"{args.as_}-cli", version="1")
+            async with ClientSession(r, w, client_info=info) as s:
+                await s.initialize()
+                op = params.get("op") if args.tool == "session" else None
+                sid = sess_file.read_text().strip() if sess_file.exists() else ""
+                if sid and op not in ("start", "resume", "list"):
+                    await s.call_tool("session", {"op": "resume", "id": sid})
+                res = await s.call_tool(args.tool, params)
+                for c in res.content:
+                    if c.type == "text":
+                        print(c.text)
+                if op == "start" and not res.isError:
+                    sess_file.write_text(res.content[0].text.split()[1])
+                elif op == "resume" and not res.isError:
+                    sess_file.write_text(params["id"])
+                elif op == "end":
+                    sess_file.unlink(missing_ok=True)
+                return 1 if res.isError else 0
+
+    sys.exit(asyncio.run(run()))
+
+
+def cmd_replay(args: argparse.Namespace) -> None:
+    """Replay a recorded test (session export) without any LLM: zero tokens, deterministic."""
+    import asyncio
+    import json
+    import logging
+    import time
+
+    from mcp import ClientSession, types
+    from mcp.client.streamable_http import streamablehttp_client
+
+    from .daemon import mcp_url
+
+    logging.disable(logging.INFO)
+    test = json.loads(Path(args.file).read_text())
+    steps = test["steps"]
+
+    async def run() -> int:
+        async with streamablehttp_client(mcp_url()) as (r, w, _):
+            async with ClientSession(r, w, client_info=types.Implementation(name="replay", version="1")) as s:
+                await s.initialize()
+                await s.call_tool("session", {"op": "start", "text": f"replay: {test.get('name', args.file)}"})
+                t0, opened, i = time.time(), False, 0
+                while i < len(steps):
+                    st = steps[i]
+                    if st["do"] == "goto" and not opened:
+                        res = await s.call_tool("open", {"url": st["url"]})
+                        opened, i, label = True, i + 1, f"open {st['url']}"
+                    else:
+                        chunk = [st]
+                        i += 1
+                        while i < len(steps) and len(chunk) < 25 and steps[i]["do"] != "goto":
+                            chunk.append(steps[i])
+                            i += 1
+                        res = await s.call_tool("act", {"steps": chunk})
+                        label = f"{len(chunk)} step(s)"
+                    text = "\n".join(c.text for c in res.content if c.type == "text")
+                    failed = res.isError or "\n✗" in "\n" + text
+                    print(f"{'FAIL' if failed else 'ok  '} {label}")
+                    if failed or args.verbose:
+                        print("  " + text.replace("\n", "\n  "))
+                    if failed:
+                        print(f"FAILED after {time.time() - t0:.1f}s")
+                        return 1
+                print(f"PASSED {len(steps)} steps in {time.time() - t0:.1f}s")
+                return 0
+
+    sys.exit(asyncio.run(run()))
+
+
+def cmd_run(args: argparse.Namespace) -> None:
+    try:
+        from .runner import main as runner_main
+    except ImportError:
+        sys.exit("the runner needs extras: uv sync --extra runner")
+    sys.argv = ["zen-pilot run", *args.rest]
+    runner_main()
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(prog="zen-pilot", description="Let AI agents drive your Zen browser over MCP.")
+    sub = p.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("daemon", help="run the bridge (MCP on :8765/mcp, extension socket on :8765/ext)").set_defaults(fn=cmd_daemon)
+    sub.add_parser("url", help="print the MCP URL (includes the access key)").set_defaults(fn=cmd_url)
+    pk = sub.add_parser("pack", help="build the extension zip into ~/Downloads (readable by Flatpak Zen)")
+    pk.add_argument("--out", default="~/Downloads/zen-pilot/zen-pilot.xpi")
+    pk.set_defaults(fn=cmd_pack)
+    ins = sub.add_parser("install", help="systemd user service + register with Claude Code / Codex")
+    ins.add_argument("--clients", nargs="*", default=["claude", "codex"])
+    ins.set_defaults(fn=cmd_install)
+    cl = sub.add_parser("call", help="call a tool: zen-pilot call act '{\"steps\":[...]}'")
+    cl.add_argument("tool")
+    cl.add_argument("json", nargs="?", default="")
+    cl.add_argument("--as", dest="as_", default="claude", help="agent name shown in Zen (claude, codex, ...)")
+    cl.set_defaults(fn=cmd_call)
+    rp = sub.add_parser("replay", help="replay a recorded test (session export) with no LLM")
+    rp.add_argument("file")
+    rp.add_argument("-v", "--verbose", action="store_true")
+    rp.set_defaults(fn=cmd_replay)
+    rn = sub.add_parser("run", help="LangChain runner for API keys / Ollama (needs --extra runner)")
+    rn.add_argument("rest", nargs=argparse.REMAINDER)
+    rn.set_defaults(fn=cmd_run)
+    args = p.parse_args()
+    args.fn(args)
+
+
+if __name__ == "__main__":
+    main()

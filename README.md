@@ -1,0 +1,119 @@
+# Zen Pilot
+
+Let any AI agent drive your **real, already-open Zen browser**: Claude Code and Codex on
+your existing subscriptions, Gemini CLI, Cursor, or any model through LangChain (API keys
+or local Ollama). Built for two jobs: browsing for you, and end-to-end testing websites.
+
+```
+ Claude Code ─┐                        ┌─────────── Zen (your real browser) ───────────┐
+ Codex CLI ───┼─ MCP ─► zen-pilot ◄═ws═╪═► extension background ─► content scripts      │
+ Gemini CLI ──┤  http   daemon         │     tabs, screenshots,     observe · act ·      │
+ LangChain ───┘           │            │     network errors         overlay UI           │
+                          ▼            └───────────────────────────────────────────────┘
+               ~/.local/share/zen-pilot   sessions · site notes · screenshots · tests
+```
+
+- **Works beside you.** Agents get their own tabs, in a tab group per session (`Claude · goal`),
+  opened in the background. Your tabs are never touched. When an agent needs you (login, captcha,
+  approval) you get a notification; clicking it opens the tab.
+- **You can see it driving.** Agent tabs glow softly in the agent's colour. A floating bar shows
+  `Claude is driving · click "Login"` with **Pause** and **Take over**. A named cursor moves along
+  human-like paths, and typing is per character with natural rhythm. Both animate only while you
+  watch the tab; in the background everything runs at full speed.
+- **Token-frugal by design.** The agent looks at the page with the cheapest observation that answers
+  its question, and every action reports what changed, so it rarely needs to look again.
+
+## Token ladder
+
+| Level | Tool | Returns | Typical cost |
+|---|---|---|---|
+| 0 | `open` / `act` results | page outline after navigation, or a change report | free (already returned) |
+| 1 | `outline()` | landmarks, regions `rN`, headings, modals, notices | 150–400 tokens |
+| 2 | `elements(region, filter)` | numbered controls, look-alike runs collapsed | 100–600 |
+| 2b | `find("text" \| /re/)` | matching controls + snippets with nearest control | 50–200 |
+| 3 | `read(rN \| heading, max_chars)` | article text (readability heuristic), paginated, `save=True` → file | capped |
+| 4 | `look(id \| rN)` | cropped JPEG of one element/region | ~300–800 |
+| 5 | `look("viewport" \| "full", marks=True)` | screenshot with element numbers drawn on | ~1–1.5k |
+
+Other savings: batched `act([...])` steps, labels instead of ids (`{"do":"click","el":"Sign in"}`),
+stable element numbers, dedup of repeated items, per-site notes injected on revisit, 10 tools with
+terse schemas (~1.8k tokens total).
+
+`act` change report example:
+
+```
+✓ fill 1 "Username"
+✓ click 3 "Login"
+navigated → https://example.com/secure
+notice "You logged into a secure area!"
+ERROR HTTP 500 POST example.com/api/session
+```
+
+## End-to-end testing
+
+- `{"do":"expect","text"|"url"|"title"|"el":…, "not":true?}` assertions inside `act`.
+- Console errors, uncaught exceptions, failed resources and first-party HTTP ≥ 400 responses show
+  up as `ERROR` lines in every `act` result (third-party noise is counted, not listed); `errors()` lists all.
+- Every session records its steps with label locators. `session(op="export")` writes a test file, and
+  `zen-pilot replay test.json` replays it **without any LLM** (zero tokens, exit code 1 on failure).
+
+```bash
+zen-pilot replay ~/.local/share/zen-pilot/sessions/<id>/test.json
+# ok   open https://the-internet.herokuapp.com/login
+# ok   7 step(s)
+# PASSED 8 steps in 4.1s
+```
+
+## Install
+
+Requirements: Zen (or Firefox) ≥ 128, Python ≥ 3.12, [uv](https://docs.astral.sh/uv/).
+
+```bash
+uv sync
+uv run zen-pilot install      # systemd user service + registers MCP server "zen" in Claude Code and Codex
+uv run zen-pilot pack         # builds ~/Downloads/zen-pilot/zen-pilot.xpi
+```
+
+Load the extension in Zen:
+
+- **Quick (temporary, gone after a Zen restart):** `about:debugging` → This Zen → Load Temporary Add-on →
+  pick `~/Downloads/zen-pilot/zen-pilot.xpi`. Or, with Zen started by `scripts/start-zen-remote.sh`:
+  `python3 scripts/dev-load-extension.py`.
+- **Permanent:** sign it as an unlisted add-on (`npx web-ext sign --channel unlisted`, free AMO account),
+  then install the signed `.xpi`.
+
+The toolbar icon shows `off` when the daemon isn't reachable.
+
+Other MCP clients: `uv run zen-pilot url` prints the endpoint (`http://127.0.0.1:8765/mcp?key=…`).
+
+## Use
+
+In Claude Code / Codex just ask: *"use the zen browser to …"*. From a shell:
+
+```bash
+zen-pilot call session '{"op":"start","text":"check checkout flow"}'
+zen-pilot call open '{"url":"https://shop.example"}'
+zen-pilot call act '{"steps":[{"do":"click","el":"Add to cart"},{"do":"expect","text":"1 item"}]}'
+zen-pilot call session '{"op":"export"}'
+```
+
+Any model via LangChain: `uv sync --extra runner && uv run zen-pilot run -m ollama:qwen3:14b "…"`.
+
+Canvas apps (Figma, maps) work through coordinate steps (`click_at`, `drag`, `move`), keyboard
+shortcuts (`press` with `repeat`) and `insert` for text editors, guided by `look("viewport")`.
+
+## Safety
+
+- The MCP endpoint needs a random key (`~/.config/zen-pilot/key`); the extension socket accepts only
+  `moz-extension://` origins, so websites can't talk to the bridge.
+- Page text is treated as data, never instructions. Agents must `ask_user(kind="confirm")` before
+  buying, sending, deleting or changing accounts, and hand logins/captchas to you.
+- **Pause** / **Take over** in the floating bar stop the agent immediately.
+
+## Layout
+
+```
+extension/   content.js (observe, act, overlay) · background.js (bridge, tabs, screenshots, errors) · hook.js
+src/zen_pilot/  daemon.py (MCP tools) · bridge.py · store.py (sessions, site notes) · cli.py · runner.py (LangChain)
+scripts/     start-zen-remote.sh · dev-load-extension.py
+```
