@@ -47,6 +47,8 @@ Something looks off? **Alt+click** the element in an agent tab and tell your age
 *"this isn't aligned"*. It inspects that element like a layout inspector: exact box, margins and
 padding, how it lines up with its siblings (`left: 3 at 37px, off by a little: 6 +3px`), uneven gaps,
 content that sticks out or gets clipped, and what covers a point.
+Agents can also *see* the layout: `look(bounds=True)` is a screenshot with every box outlined,
+margins in orange and padding in green, like "Show layout bounds" on Android.
 
 ## DevTools
 

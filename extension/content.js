@@ -512,6 +512,31 @@
       ? { x: 0, y: 0, width: innerWidth, height: Math.min(se.scrollHeight, 6000) }
       : { x: scrollX, y: scrollY, width: innerWidth, height: innerHeight };
   };
+  // "Show layout bounds" for screenshots: every visible box under target (default: the page),
+  // within the viewport, with margins and padding. Wrappers that exactly cover their parent
+  // are skipped. Labels are element numbers, the same ones inspect(N) takes.
+  ZP.bounds = ({ on, target } = {}) => {
+    if (!on) return UI.bounds(null);
+    const root = getTarget(target) || document.body;
+    const px = (v) => parseFloat(v) || 0;
+    const items = [];
+    const vis = (r) => r.width >= 4 && r.height >= 4 && r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth;
+    const same = (a, b) => Math.abs(a.left - b.left) < 1 && Math.abs(a.top - b.top) < 1 && Math.abs(a.width - b.width) < 1 && Math.abs(a.height - b.height) < 1;
+    for (const el of qsaDeep("*", root)) {
+      if (items.length >= 400) break;
+      if (/^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE|LINK|META|BR|REMOBRO-OVERLAY)$/.test(el.tagName) || !isVisible(el)) continue;
+      const r = el.getBoundingClientRect();
+      if (!vis(r)) continue;
+      const par = el.parentElement;
+      if (el !== root && par && same(r, par.getBoundingClientRect())) continue;
+      const cs = getComputedStyle(el);
+      const m = [px(cs.marginTop), px(cs.marginRight), px(cs.marginBottom), px(cs.marginLeft)];
+      const p = [px(cs.paddingTop), px(cs.paddingRight), px(cs.paddingBottom), px(cs.paddingLeft)];
+      items.push({ id: eid(el), r, m, p, depth: el === root ? 0 : 1 });
+    }
+    UI.bounds(items);
+    return items.length;
+  };
   ZP.marks = (on) => {
     UI.marks(on ? interactiveIn(modalDialog() || document.body, { viewportOnly: true }).map((el) => [eid(el), el.getBoundingClientRect()]) : null);
   };
@@ -1155,7 +1180,7 @@
     return LOGOS[k];
   };
   const UI = (() => {
-    let host, root, pill, logo, hand, label, stepEl, askBox, cursor, border, marksLayer, state = { on: false };
+    let host, root, pill, logo, hand, label, stepEl, askBox, cursor, border, marksLayer, boundsLayer, state = { on: false };
     let cx = 0, cy = 0, kindNow = "arrow";
     const HOT = { arrow: [3.7, 1.8], hand: [9.5, 3.5], text: [11, 11] }; // hotspot per cursor shape
     const watching = () => state.on && !state.fast && !document.hidden;
@@ -1286,7 +1311,12 @@
       @keyframes r{to{transform:scale(4);opacity:0}}
       .mark{position:fixed;z-index:2147483647;pointer-events:none;font:700 11px/1 system-ui;color:#fff;background:#d4145a;
         padding:2px 3px;border-radius:3px;outline:1px solid #fff}
-      .mbox{position:fixed;z-index:2147483646;pointer-events:none;outline:1.5px solid #d4145a}`;
+      .mbox{position:fixed;z-index:2147483646;pointer-events:none;outline:1.5px solid #d4145a}
+      .bb{position:fixed;z-index:2147483646;pointer-events:none;box-sizing:border-box;border:1px solid rgba(37,99,235,.75)}
+      .bm{position:fixed;z-index:2147483645;pointer-events:none;background:rgba(249,115,22,.22)}
+      .bp{position:fixed;z-index:2147483645;pointer-events:none;background:rgba(34,197,94,.2)}
+      .bl{position:fixed;z-index:2147483647;pointer-events:none;font:600 9px/1 system-ui,sans-serif;color:#fff;
+        background:rgba(37,99,235,.92);padding:1px 3px;border-radius:2px}`;
 
     function ensure() {
       if (host?.isConnected) return;
@@ -1482,6 +1512,45 @@
         askBox?.remove();
         askBox = null;
       },
+      bounds(items) {
+        boundsLayer?.remove();
+        boundsLayer = null;
+        if (!items) return;
+        ensure();
+        boundsLayer = document.createElement("div");
+        const add = (cls, x, y, w, h) => {
+          if (w <= 0 || h <= 0) return;
+          const d = document.createElement("div");
+          d.className = cls;
+          Object.assign(d.style, { left: x + "px", top: y + "px", width: w + "px", height: h + "px" });
+          boundsLayer.appendChild(d);
+        };
+        const taken = []; // label positions, so labels never overlap
+        for (const { id, r, m, p } of items) {
+          // margin (outside the border box) and padding (inside it) as bands, like DevTools
+          add("bm", r.left, r.top - m[0], r.width, m[0]);
+          add("bm", r.left, r.bottom, r.width, m[2]);
+          add("bm", r.left - m[3], r.top - m[0], m[3], r.height + m[0] + m[2]);
+          add("bm", r.right, r.top - m[0], m[1], r.height + m[0] + m[2]);
+          add("bp", r.left, r.top, r.width, p[0]);
+          add("bp", r.left, r.bottom - p[2], r.width, p[2]);
+          add("bp", r.left, r.top + p[0], p[3], r.height - p[0] - p[2]);
+          add("bp", r.right - p[1], r.top + p[0], p[1], r.height - p[0] - p[2]);
+          add("bb", r.left, r.top, r.width, r.height);
+          // labels in the top-right corner, where text rarely starts
+          const lw = 6 + 5.5 * String(id).length;
+          const lx = Math.max(0, Math.min(innerWidth, r.right) - lw), ly = Math.max(0, r.top);
+          if (r.width >= 14 && r.height >= 10 && !taken.some(([x, y]) => Math.abs(x - lx) < 26 && Math.abs(y - ly) < 12)) {
+            taken.push([lx, ly]);
+            const l = document.createElement("div");
+            l.className = "bl";
+            l.textContent = id;
+            Object.assign(l.style, { left: lx + "px", top: ly + "px" });
+            boundsLayer.appendChild(l);
+          }
+        }
+        root.appendChild(boundsLayer);
+      },
       marks(items) {
         marksLayer?.remove();
         marksLayer = null;
@@ -1507,9 +1576,20 @@
         if (h && !st) {
           st = document.createElement("style");
           st.className = "hide";
-          st.textContent = ".border,.pill,.cursor,.hl,.ask,.ripple{display:none!important}";
+          // Chromium renders background tabs only while something animates; with the island
+          // hidden, a capture would wait forever for a frame. This 1px tick (opacity 0.2%,
+          // below one colour step) keeps frames coming without showing in the screenshot.
+          st.textContent = ".border,.pill,.cursor,.hl,.ask,.ripple{display:none!important}" +
+            ".tick{position:fixed;left:0;top:0;width:1px;height:1px;background:#000;opacity:.002;animation:tick .4s linear infinite;pointer-events:none}" +
+            "@keyframes tick{to{opacity:.003}}";
+          const tick = document.createElement("div");
+          tick.className = "tick";
+          root.appendChild(tick);
           root.appendChild(st);
-        } else if (!h) st?.remove();
+        } else if (!h) {
+          st?.remove();
+          root.querySelectorAll(".tick").forEach((t) => t.remove());
+        }
         // wait until the change is painted (rAF is paused in background tabs: cap the wait)
         const painted = new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
         await Promise.race([painted, sleep(150)]);
@@ -1539,6 +1619,7 @@
       case "read": return ZP.read(args);
       case "rect": return args.target ? ZP.rectOf(args) : ZP.viewportRect(args.full);
       case "marks": ZP.marks(args.on); return true;
+      case "bounds": return ZP.bounds(args);
       case "inspect": return ZP.inspect(args);
       case "fxBegin": ZP.fxBegin(); return true;
       case "fxEnd": return ZP.fxEnd();

@@ -317,12 +317,15 @@ async def inspect(ctx: Context, target: str = "", at: str = "", tree: bool = Fal
 
 
 @mcp.tool()
-async def look(ctx: Context, target: str = "viewport", marks: bool = False, tab: int = 0) -> list:
+async def look(ctx: Context, target: str = "viewport", marks: bool = False, bounds: bool = False, tab: int = 0) -> list:
     """Screenshot (most expensive observation). target: element number or rN (cropped, cheapest),
-    "viewport", or "full" (whole page). marks=True draws element numbers on it."""
+    "viewport", or "full" (whole page). marks=True draws numbers on interactive elements.
+    bounds=True shows layout bounds (for alignment/spacing problems): every box outlined in blue,
+    margins shaded orange, padding green, labels = element numbers for inspect(N). Use with an element
+    target to zoom into one area; boxes are drawn for the visible viewport part."""
     s = _session(ctx)
     t = _tab(s, tab)
-    r = await _call(s, "page.look", {"tabId": t, "target": target, "marks": marks}, 60)
+    r = await _call(s, "page.look", {"tabId": t, "target": target, "marks": marks, "bounds": bounds}, 60)
     data = base64.b64decode(r["dataUrl"].split(",", 1)[1])
     f = s.dir / f"look-{time.strftime('%H%M%S')}-{target}.jpg"
     f.write_bytes(data)
@@ -330,7 +333,8 @@ async def look(ctx: Context, target: str = "viewport", marks: bool = False, tab:
     store.save(s)
     sc = r.get("scale", 1) or 1
     hint = f" · page css = (px/{sc:.3f}){' + (' + str(round(r['x0'])) + ',' + str(round(r['y0'])) + ')' if target == 'full' else ''}"
-    return [Image(data=data, format="jpeg"), f"{r['w']}x{r['h']}{hint if target in ('viewport', 'full') else ''} saved {f}"]
+    legend = f" · {r['boxes']} boxes: blue=border box, orange=margin, green=padding, labels=inspect(N)" if bounds else ""
+    return [Image(data=data, format="jpeg"), f"{r['w']}x{r['h']}{hint if target in ('viewport', 'full') else ''}{legend} saved {f}"]
 
 
 ACT_OPS = {"click", "dblclick", "hover", "fill", "type", "select", "check", "press", "scroll", "wait", "expect",

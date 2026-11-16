@@ -479,36 +479,43 @@ async function look(tabId, p) {
   const target = p.target && p.target !== "viewport" && p.target !== "full" ? p.target : null;
   let rect = await cs(tabId, "rect", target ? { target } : { full: p.target === "full" });
   if (p.marks) await cs(tabId, "marks", { on: true });
+  const boxes = p.bounds ? await cs(tabId, "bounds", { on: true, target }) : 0;
   await tell(tabId, "uiHide", { hide: true });
   await sleep(200); // let the compositor repaint without the overlay
   try {
     const maxW = p.maxWidth || (target ? 900 : 1200);
     const scale = Math.min(1, maxW / rect.width) * (p.scale || 1);
-    const dataUrl = await capture(tabId, rect, scale, p.quality || 60);
-    return { dataUrl, w: Math.round(rect.width * scale), h: Math.round(rect.height * scale), scale, x0: rect.x, y0: rect.y };
+    const dataUrl = await capture(tabId, rect, scale, p.quality || 60, p.target === "full");
+    return { dataUrl, w: Math.round(rect.width * scale), h: Math.round(rect.height * scale), scale, x0: rect.x, y0: rect.y, boxes };
   } finally {
     await tell(tabId, "uiHide", { hide: false }).catch(() => {});
     if (p.marks) await cs(tabId, "marks", { on: false }).catch(() => {});
+    if (p.bounds) await cs(tabId, "bounds", { on: false }).catch(() => {});
   }
 }
 
 // rect is in page (document) CSS px. Firefox can capture background tabs directly;
 // Chromium only via the DevTools protocol (chrome.debugger), which shows a "remobro
 // started debugging this browser" bar while attached, so we detach again when idle.
-async function capture(tabId, rect, scale, quality) {
+async function capture(tabId, rect, scale, quality, full = false) {
   if (!CHROMIUM) return B.tabs.captureTab(tabId, { format: "jpeg", quality, rect, scale });
   await cdpAttach(tabId);
   const shot = B.debugger.sendCommand({ tabId }, "Page.captureScreenshot", {
     format: "jpeg",
     quality,
-    captureBeyondViewport: true,
+    captureBeyondViewport: full, // resizes the page while capturing: only for full-page shots
     clip: { x: rect.x, y: rect.y, width: rect.width, height: rect.height, scale },
   });
   const timeout = sleep(10000).then(() => {
     throw new Error("screenshot timed out (Chromium did not render the tab)");
   });
-  const { data } = await Promise.race([shot, timeout]);
-  return "data:image/jpeg;base64," + data;
+  try {
+    const { data } = await Promise.race([shot, timeout]);
+    return "data:image/jpeg;base64," + data;
+  } catch (e) {
+    cdpDetach(tabId); // a stuck capture wedges the session: start fresh next time
+    throw e;
+  }
 }
 const cdpTabs = new Map(); // tabId -> detach timer
 async function cdpAttach(tabId) {
