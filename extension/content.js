@@ -1157,9 +1157,14 @@
       pill.style.display = state.min ? "none" : "";
       bubble.style.display = state.min ? "grid" : "none";
       bubble.className = "bubble" + (state.paused ? " paused" : "");
-      if (state.paused) bubble.innerHTML = `<svg viewBox="0 0 14 14"><rect x="2.5" y="2" width="3.2" height="10" rx="1.2" fill="#141414"/><rect x="8.3" y="2" width="3.2" height="10" rx="1.2" fill="#141414"/></svg>`;
-      else if (logoFor(who)) bubble.innerHTML = `<svg class="logo" viewBox="0 0 24 24"><path fill="#141414" d="${logoFor(who)}"/></svg>`;
-      else bubble.textContent = who[0].toUpperCase();
+      const face = state.paused ? "paused" : who;
+      if (bubble.dataset.face !== face) {
+        // rebuilt only when the agent or pause state changes, not on every step
+        bubble.dataset.face = face;
+        if (state.paused) bubble.innerHTML = `<svg viewBox="0 0 14 14"><rect x="2.5" y="2" width="3.2" height="10" rx="1.2" fill="#141414"/><rect x="8.3" y="2" width="3.2" height="10" rx="1.2" fill="#141414"/></svg>`;
+        else if (logoFor(who)) bubble.innerHTML = `<svg class="logo" viewBox="0 0 24 24"><path fill="#141414" d="${logoFor(who)}"/></svg>`;
+        else bubble.textContent = who[0].toUpperCase();
+      }
       cursor.classList.toggle("away", !!state.paused); // your turn: hide the agent's cursor
       bubble.title = `${label.textContent}${state.step ? " · " + state.step : ""}\nclick to expand`;
       root.querySelector(".tag").textContent = state.agent || "AI";
