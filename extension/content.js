@@ -1224,37 +1224,45 @@
     }
     const css = `
       :host{all:initial}
+      /* soft glow around agent tabs */
       .border{position:fixed;inset:0;pointer-events:none;z-index:2147483646;
-        box-shadow:inset 0 0 40px 6px color-mix(in srgb,var(--c) 75%,transparent);animation:breathe 2.6s ease-in-out infinite}
-      .border.paused{animation:none;opacity:.5;box-shadow:inset 0 0 40px 6px rgba(136,136,136,.55)}
-      @keyframes breathe{0%,100%{opacity:.35}50%{opacity:1}}
-      @media (prefers-reduced-motion:reduce){.border{animation:none;opacity:.7}.logo::after{animation:none}}
-      /* the island: top centre; click it to collapse to just the logo, click again to expand */
-      /* 8px grid: 38px tall (1px border + 5px padding + 26px circles), 10px between items */
+        box-shadow:inset 0 0 36px 4px color-mix(in srgb,var(--c) 42%,transparent);animation:breathe 3.2s ease-in-out infinite}
+      .border.paused{animation:none;opacity:.6;box-shadow:inset 0 0 36px 4px rgba(140,140,150,.35)}
+      @keyframes breathe{0%,100%{opacity:.3}50%{opacity:.8}}
+      /* the island: top centre, frosted and tinted with the agent's colour. Click it to morph between
+         a 38px circle (just the logo) and the full pill. 1px border + 5px padding + 26px circles, 10px gaps. */
       .pill{position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:2147483647;box-sizing:border-box;
-        height:38px;min-width:38px;padding:5px;display:flex;align-items:center;gap:10px;
-        max-width:min(640px,calc(100vw - 32px));font:13px/16px system-ui,sans-serif;color:#fff;
-        background:rgba(22,22,26,.94);border:1px solid var(--c);border-radius:19px;
-        box-shadow:0 6px 24px rgba(0,0,0,.35);pointer-events:auto;cursor:pointer;user-select:none}
-      .pill.paused{border-color:#777}
+        height:38px;min-width:38px;padding:5px;display:flex;align-items:center;gap:10px;overflow:hidden;
+        max-width:min(640px,calc(100vw - 32px));font:13px/16px system-ui,sans-serif;color:rgba(255,255,255,.92);
+        background:color-mix(in srgb,var(--c) 16%,rgba(26,26,32,.78));
+        -webkit-backdrop-filter:blur(16px) saturate(150%);backdrop-filter:blur(16px) saturate(150%);
+        border:1px solid color-mix(in srgb,var(--c) 38%,rgba(255,255,255,.08));border-radius:999px;
+        box-shadow:0 8px 28px rgba(0,0,0,.22),inset 0 1px 0 rgba(255,255,255,.06);
+        pointer-events:auto;cursor:pointer;user-select:none;
+        transition:width .42s cubic-bezier(.32,.72,0,1),background-color .3s,border-color .3s}
+      .pill.paused{background:rgba(40,40,46,.8);border-color:rgba(255,255,255,.14)}
       .logo{position:relative;width:26px;height:26px;border-radius:50%;flex:none;display:grid;place-items:center;
-        background:var(--c);color:#141414;font:700 13px/1 system-ui,sans-serif}
+        background:color-mix(in srgb,var(--c) 78%,#fff 22%);color:rgba(20,20,24,.85);font:700 13px/1 system-ui,sans-serif;
+        transition:background-color .3s}
       .logo svg{width:16px;height:16px}
-      .logo::after{content:"";position:absolute;inset:-3px;border-radius:50%;border:2px solid var(--c);animation:ping 1.8s ease-out infinite}
-      .paused .logo{background:#9a9a9a}
+      .logo svg path{fill:rgba(20,20,24,.82)}
+      .logo::after{content:"";position:absolute;inset:-3px;border-radius:50%;
+        border:1.5px solid color-mix(in srgb,var(--c) 55%,transparent);animation:ping 2.2s ease-out infinite}
+      .paused .logo{background:#a3a3ab}
       .paused .logo::after{display:none}
-      @keyframes ping{0%{opacity:.7;transform:scale(.9)}100%{opacity:0;transform:scale(1.45)}}
-      .txt{display:flex;align-items:baseline;min-width:0;white-space:nowrap}
+      @keyframes ping{0%{opacity:.6;transform:scale(.92)}100%{opacity:0;transform:scale(1.4)}}
+      .txt{display:flex;align-items:baseline;min-width:0;white-space:nowrap;transition:opacity .25s .12s}
       .lbl{font-weight:600}
-      .step{opacity:.72;overflow:hidden;text-overflow:ellipsis;min-width:0}
+      .step{opacity:.62;overflow:hidden;text-overflow:ellipsis;min-width:0}
       .step:not(:empty)::before{content:"·";margin:0 6px}
+      @media (prefers-reduced-motion:reduce){.border{animation:none;opacity:.6}.logo::after{animation:none}}
       .hand{width:26px;height:26px;flex:none;border:0;border-radius:50%;padding:0;display:grid;place-items:center;
-        color:#fff;background:#ffffff22;cursor:pointer}
-      .hand:hover{background:#ffffff40}
+        color:rgba(255,255,255,.9);background:rgba(255,255,255,.1);cursor:pointer;transition:background-color .15s,opacity .25s .12s}
+      .hand:hover{background:rgba(255,255,255,.2)}
       .hand svg{width:15px;height:15px}
-      .hand:focus-visible{outline:2px solid var(--c);outline-offset:1px}
-      .pill.min{gap:0;width:38px}
-      .pill.min .txt,.pill.min .hand{display:none}
+      .hand:focus-visible{outline:2px solid color-mix(in srgb,var(--c) 70%,#fff);outline-offset:1px}
+      .pill.min .txt,.pill.min .hand{opacity:0;transition-delay:0s;transition-duration:.12s;pointer-events:none}
+      @media (prefers-reduced-motion:reduce){.pill,.txt,.hand{transition:none}}
       .cursor.away{display:none}
       .ask{position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:2147483647;
         font:14px/1.45 system-ui,sans-serif;color:#fff;background:rgba(22,22,26,.96);border:1px solid var(--c);
@@ -1268,7 +1276,7 @@
         transition:transform .07s ease-out;filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.45))}
       .cursor[data-k=arrow] .arrow,.cursor[data-k=hand] .hand,.cursor[data-k=text] .ibeam{display:block}
       .cursor.down svg{transform:scale(.84)}
-      .cursor .tag{position:absolute;left:15px;top:19px;font:600 11px/1 system-ui,sans-serif;color:#141414;background:var(--c);
+      .cursor .tag{position:absolute;left:15px;top:19px;font:600 11px/1 system-ui,sans-serif;color:rgba(20,20,24,.85);background:color-mix(in srgb,var(--c) 78%,#fff 22%);
         padding:3px 6px;border-radius:3px 9px 9px 9px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.3)}
       .hl{position:fixed;z-index:2147483646;pointer-events:none;border:2px solid var(--c);border-radius:6px;
         background:color-mix(in srgb,var(--c) 14%,transparent);transition:opacity .4s}
@@ -1289,8 +1297,8 @@
       root.innerHTML = `<style>${css}</style><div class="border"></div>
         <div class="pill"><span class="logo"></span><span class="txt"><span class="lbl"></span><span class="step"></span></span><button class="hand" data-a="pause"></button></div>
         <div class="cursor" data-k="arrow">
-          <svg class="arrow" viewBox="0 0 24 24"><path d="M4 2 L4 20 L9 15 L13 23 L16 21.5 L12 13.8 L19 13.5 Z" fill="var(--c)" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg>
-          <svg class="hand" viewBox="0 0 24 24"><path d="M9 11.5V4.2a1.6 1.6 0 0 1 3.2 0V10h.4V8.4a1.6 1.6 0 0 1 3.2 0V10h.4V9.2a1.6 1.6 0 0 1 3.2 0v6.1c0 3.9-2.6 6.7-6.6 6.7-2.6 0-4.3-1.1-5.5-3.2L4 14.3a1.5 1.5 0 0 1 2.5-1.7L9 15.2z" fill="var(--c)" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/></svg>
+          <svg class="arrow" viewBox="0 0 24 24"><path d="M4 2 L4 20 L9 15 L13 23 L16 21.5 L12 13.8 L19 13.5 Z" fill="color-mix(in srgb,var(--c) 78%,#fff 22%)" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg>
+          <svg class="hand" viewBox="0 0 24 24"><path d="M9 11.5V4.2a1.6 1.6 0 0 1 3.2 0V10h.4V8.4a1.6 1.6 0 0 1 3.2 0V10h.4V9.2a1.6 1.6 0 0 1 3.2 0v6.1c0 3.9-2.6 6.7-6.6 6.7-2.6 0-4.3-1.1-5.5-3.2L4 14.3a1.5 1.5 0 0 1 2.5-1.7L9 15.2z" fill="color-mix(in srgb,var(--c) 78%,#fff 22%)" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/></svg>
           <svg class="ibeam" viewBox="0 0 24 24"><path d="M8 3.5h2.5L12 5l1.5-1.5H16M12 5v14M8 20.5h2.5L12 19l1.5 1.5H16" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round"/><path d="M8 3.5h2.5L12 5l1.5-1.5H16M12 5v14M8 20.5h2.5L12 19l1.5 1.5H16" fill="none" stroke="var(--c)" stroke-width="1.8" stroke-linecap="round"/></svg>
           <span class="tag"></span>
         </div>`;
@@ -1346,6 +1354,30 @@
       clearTimeout(ibTimer);
       ibTimer = setTimeout(() => b.remove(), 6000);
     }
+    // Island morph: animate between the 38px circle and the pill's natural width, then hand
+    // the width back to "auto" so step text can change freely while expanded.
+    let morphEnd = null;
+    function morph(min, animate) {
+      pill.removeEventListener("transitionend", morphEnd);
+      if (!animate) {
+        pill.style.width = min ? "38px" : "";
+        return;
+      }
+      const from = pill.getBoundingClientRect().width;
+      pill.style.transition = "none";
+      pill.style.width = min ? "38px" : "auto";
+      const to = min ? 38 : pill.getBoundingClientRect().width;
+      pill.style.width = from + "px";
+      pill.getBoundingClientRect(); // commit the start width
+      pill.style.transition = "";
+      pill.style.width = to + "px";
+      if (!min) {
+        morphEnd = (e) => {
+          if (e.propertyName === "width") pill.style.width = "";
+        };
+        pill.addEventListener("transitionend", morphEnd);
+      }
+    }
     function render() {
       if (!state.on) {
         host?.remove();
@@ -1356,7 +1388,10 @@
       root.host.style.setProperty("--c", state.color || "#f76f53");
       root.querySelector("style").textContent = css.replace(/var\(--c\)/g, state.color || "#f76f53");
       border.className = "border" + (state.paused ? " paused" : "");
+      const wasMin = pill.classList.contains("min");
       pill.className = "pill" + (state.paused ? " paused" : "") + (state.min ? " min" : "");
+      morph(!!state.min, wasMin !== !!state.min && pill.dataset.ready === "1");
+      pill.dataset.ready = "1";
       const who = state.agent || "AI";
       label.textContent = state.paused ? `${who} paused` : `${who} is driving`;
       const face = `${who}|${!!state.paused}`;
