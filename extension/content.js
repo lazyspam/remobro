@@ -827,6 +827,31 @@
     el.dispatchEvent(new Ctor(type, { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, view: window, button: 0, buttons: type.endsWith("down") ? 1 : 0, pointerType: "mouse", pointerId: SYNTH_POINTER, isPrimary: true, ...extra }));
   }
 
+  // Real mouse input (Chromium, through DevTools in the background script): pages can't
+  // tell it from a person's. Returns false when unavailable (Firefox/Zen, frames, DevTools
+  // in use) so the caller falls back to synthetic events. Points covered by remobro's own
+  // overlay (the pill, a question card) also stay synthetic, or the real click would land
+  // on the overlay. check=false skips that test (moves in the middle of a drag).
+  let realOk = null; // per page: null = not tried yet
+  let via = ""; // how the last pointer action was delivered: "real" | "synthetic"
+  const overlayAt = (x, y) => document.elementFromPoint(x, y)?.tagName === "REMOBRO-OVERLAY";
+  async function real(events, check = true) {
+    if (realOk === false || window !== top) return false;
+    if (check && events.some((e) => overlayAt(e.x, e.y))) return false;
+    let r;
+    try {
+      r = await B.runtime.sendMessage({ zpInput: events });
+    } catch {
+      r = false;
+    }
+    if (realOk === null) realOk = r === true;
+    return r === true;
+  }
+  const press = (x, y, clickCount = 1) => [
+    { type: "mousePressed", x, y, buttons: 1, clickCount },
+    { type: "mouseReleased", x, y, clickCount },
+  ];
+
   async function prep(el) {
     const r0 = el.getBoundingClientRect();
     if (r0.top < 0 || r0.bottom > innerHeight || r0.left < 0 || r0.right > innerWidth) {
@@ -950,15 +975,25 @@
     const name = el ? `${eid(el)} ${q(label(el))}` : "";
     UI.step(`${op} ${name}`.trim());
     let note = "", dragTo = null;
+    via = "";
     switch (op) {
       case "click":
       case "dblclick":
       case "hover": {
         const { x, y } = await prep(el);
         note = coverCheck(el, x, y);
+        const evs = [{ type: "mouseMoved", x, y }];
+        if (op !== "hover") evs.push(...press(x, y), ...(op === "dblclick" ? press(x, y, 2) : []));
+        if (op !== "hover") await UI.press(true);
+        if (await real(evs)) {
+          // the browser fires every pointer/mouse/click event and the default action itself
+          via = "real";
+          if (op !== "hover") UI.press(false), UI.ripple(x, y);
+          break;
+        }
+        via = "synthetic";
         for (const t of ["pointerover", "pointerenter", "mouseover", "mouseenter", "pointermove", "mousemove"]) mouse(el, t, x, y);
         if (op === "hover") break;
-        await UI.press(true);
         mouse(el, "pointerdown", x, y);
         mouse(el, "mousedown", x, y);
         el.focus?.({ preventScroll: true });
@@ -1102,6 +1137,14 @@
         const pt = (x, y) => ({ x: +x, y: +y, t: document.elementFromPoint(+x, +y) || document.body });
         const a = pt(s.x, s.y);
         await UI.pointTo(a.x, a.y);
+        const evs = [{ type: "mouseMoved", x: a.x, y: a.y }];
+        if (op !== "move") evs.push(...press(a.x, a.y), ...(s.double ? press(a.x, a.y, 2) : []));
+        if (await real(evs)) {
+          via = "real";
+          if (op !== "move") UI.ripple(a.x, a.y);
+          break;
+        }
+        via = "synthetic";
         const opt = {};
         mouse(a.t, "pointermove", a.x, a.y, opt);
         mouse(a.t, "mousemove", a.x, a.y);
@@ -1136,7 +1179,7 @@
     // which may load content the next step needs).
     const heavy = op === "click" || op === "dblclick" || op === "check" || (op === "fill" && s.enter);
     if (op !== "wait") await settle(last || heavy ? 250 : 80, last || heavy ? 2500 : 600);
-    return { ok: true, desc: `${op} ${name}${s.repeat > 1 ? " ×" + s.repeat : ""}`.trim(), note, loc, toLoc: dragTo };
+    return { ok: true, desc: `${op} ${name}${s.repeat > 1 ? " ×" + s.repeat : ""}`.trim(), note, loc, toLoc: dragTo, via };
   };
 
   // ---------------------------------------------------------------- drag
@@ -1208,13 +1251,33 @@
     document.querySelectorAll("[data-remobro-capture]").forEach((e) => e.removeAttribute("data-remobro-capture"));
     const t0 = hit(a.x, a.y);
     await UI.pointTo(a.x, a.y);
+    const n = Math.max(8, Math.min(40, Math.round(Math.hypot(b.x - a.x, b.y - a.y) / 20)));
+    // real input: the browser does hit testing, pointer capture and the click for us
+    if (!overlayAt(b.x, b.y) && (await real([{ type: "mouseMoved", x: a.x, y: a.y }, press(a.x, a.y)[0]]))) {
+      via = "real";
+      await UI.press(true);
+      await sleep(80);
+      for (let i = 1; i <= n; i++) {
+        const k = ease(i / n);
+        const x = a.x + (b.x - a.x) * k, y = a.y + (b.y - a.y) * k;
+        await real([{ type: "mouseMoved", x, y, buttons: 1 }], false);
+        UI.cursorAt(x, y);
+        await sleep(16);
+      }
+      await sleep(120);
+      await real([{ type: "mouseMoved", x: b.x, y: b.y, buttons: 1 }, press(b.x, b.y)[1]], false);
+      UI.press(false);
+      UI.ripple(b.x, b.y);
+      const tb = hit(b.x, b.y);
+      return `released at ${Math.round(b.x)},${Math.round(b.y)} over ${eid(tb)} ${nodeName(tb)}`;
+    }
+    via = "synthetic";
     mouse(t0, "pointermove", a.x, a.y);
     mouse(t0, "mousemove", a.x, a.y);
     await UI.press(true);
     mouse(t0, "pointerdown", a.x, a.y);
     mouse(t0, "mousedown", a.x, a.y);
     await sleep(80); // a beat before moving: some libraries start dragging only after a hold
-    const n = Math.max(8, Math.min(40, Math.round(Math.hypot(b.x - a.x, b.y - a.y) / 20)));
     for (let i = 1; i <= n; i++) {
       const k = ease(i / n);
       const x = a.x + (b.x - a.x) * k, y = a.y + (b.y - a.y) * k;

@@ -215,6 +215,36 @@ ACTION.onClicked.addListener(() => {
   if (tabId != null) focusTab(tabId).catch(() => {});
 });
 
+// Real mouse input for the content script (Chromium): the DevTools protocol makes events
+// the page can't tell apart from a person's (event.isTrusted, browser default actions).
+// Answers true when done; anything else means "use synthetic events".
+B.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!msg?.zpInput) return;
+  if (!CHROMIUM || !B.debugger || sender.frameId !== 0 || !agentTabs.has(sender.tab?.id)) {
+    sendResponse("no real input here");
+    return;
+  }
+  realMouse(sender.tab.id, msg.zpInput).then(
+    () => sendResponse(true),
+    (e) => sendResponse(String(e?.message || e)),
+  );
+  return true; // answering asynchronously
+});
+async function realMouse(tabId, events) {
+  await cdpAttach(tabId);
+  for (const { type, x, y, buttons = 0, clickCount = 0 } of events) {
+    await B.debugger.sendCommand({ tabId }, "Input.dispatchMouseEvent", {
+      type, // mouseMoved | mousePressed | mouseReleased
+      x,
+      y,
+      button: type === "mouseMoved" && !buttons ? "none" : "left",
+      buttons,
+      clickCount,
+      pointerType: "mouse",
+    });
+  }
+}
+
 // UI events from the overlay (pause / take over / answers)
 B.runtime.onMessage.addListener((msg, sender) => {
   if (!msg?.ui) return;
@@ -254,6 +284,10 @@ async function inject(tabId, file, { early = false, world } = {}) {
 async function injectHooks(tabId) {
   await inject(tabId, "hook.js", { early: true });
   if (CHROMIUM) await inject(tabId, "hook-main.js", { early: true, world: "MAIN" });
+  // page code sees remobro's synthetic input as trusted (both browsers; see trust-main.js)
+  await B.scripting
+    .executeScript({ target: { tabId }, files: ["trust-main.js"], world: "MAIN", injectImmediately: true })
+    .catch(() => {});
 }
 
 // Message the content script. Replies come as {v} or {err} (works the same in both
@@ -588,7 +622,7 @@ async function cdpAttach(tabId) {
     try {
       await B.debugger.attach({ tabId }, "1.3");
     } catch (e) {
-      if (!/already attached/i.test(e.message)) throw new Error(`can't screenshot this tab: ${e.message}`);
+      if (!/already attached/i.test(e.message)) throw new Error(`can't attach DevTools to this tab: ${e.message}`);
     }
   }
   // stay attached while the agent uses devtools (event capture); else detach when idle
@@ -714,6 +748,7 @@ async function actSteps(tabId, steps) {
   const rec = []; // steps with label locators instead of ids (for recorded tests)
   const tStart = Date.now();
   let navigated = false;
+  let synthetic = false; // Chromium fell back to synthetic pointer input at least once
   await cs(tabId, "fxBegin");
   for (let i = 0; i < steps.length; i++) {
     const s = steps[i];
@@ -745,6 +780,7 @@ async function actSteps(tabId, steps) {
     }
     lines.push(`✓ ${r.desc}`);
     if (r.note) lines.push(r.note);
+    if (r.via === "synthetic") synthetic = true;
     const { id, ...rest } = s;
     let st = id != null && r.loc ? { ...rest, el: r.loc } : s;
     if (r.toLoc && /^#?\d+$/.test(String(s.to))) st = { ...st, to: r.toLoc }; // replayable drag target
@@ -755,6 +791,8 @@ async function actSteps(tabId, steps) {
       await cs(tabId, "fxBegin").catch(() => {});
     }
   }
+  if (synthetic && CHROMIUM)
+    lines.push("input: synthetic (DevTools input unavailable, e.g. DevTools open on this tab); pages that check event.isTrusted may ignore it");
   if (navigated) {
     lines.push(`navigated → ${(await B.tabs.get(tabId)).url}`);
     lines.push(await pageSummary(tabId, true));
