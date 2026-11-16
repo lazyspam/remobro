@@ -17,7 +17,42 @@ permissions:
   contents: write
 
 jobs:
+  # Self-contained CLI binaries (Python + deps frozen in), so users need no Python or uv.
+  # Built on 22.04 so they run on older glibc too.
+  binary:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            arch: x86_64
+          - runner: ubuntu-22.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: astral-sh/setup-uv@v6
+      - name: Set version from tag
+        run: sed -i "s/^version = \".*\"/version = \"${TAG#v}\"/" pyproject.toml
+      - name: Build
+        run: |
+          uv sync --frozen --no-dev
+          uv run --frozen --with pyinstaller pyinstaller --onefile --name remobro --distpath dist \
+            --collect-submodules uvicorn --collect-submodules remobro --copy-metadata mcp \
+            src/remobro/__main__.py
+          mv dist/remobro dist/remobro-linux-${{ matrix.arch }}
+      - name: Smoke test
+        run: dist/remobro-linux-${{ matrix.arch }} --help
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.arch }}
+          path: dist/remobro-linux-${{ matrix.arch }}
+
   release:
+    needs: binary
     runs-on: ubuntu-latest
     env:
       TAG: ${{ github.event.inputs.tag || github.ref_name }}
@@ -56,6 +91,12 @@ jobs:
 
       - name: Build Python package
         run: uv build --out-dir dist
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: binary-*
+          path: dist
+          merge-multiple: true
 
       - name: Publish release
         env:

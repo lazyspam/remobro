@@ -2,23 +2,28 @@
 # remobro installer: CLI + bridge service + MCP registration + browser extension.
 #
 #   curl -fsSL https://github.com/iput-object/remobro/releases/latest/download/install.sh | bash
-#   ./install.sh                 from a clone: installs this checkout
+#   ./install.sh                 from a clone: installs this checkout (needs uv)
 #   ./install.sh --uninstall     removes service, MCP entries and the CLI (keeps your sessions/notes)
 #
-# Env: REMOBRO_REPO (owner/name), REMOBRO_REF (git ref, default: latest release tag),
-#      REMOBRO_NO_EXTENSION=1 (skip the extension step).
+# Env: REMOBRO_VERSION (release tag, default: latest), REMOBRO_NO_EXTENSION=1 (skip the extension).
 set -euo pipefail
 
-REPO="${REMOBRO_REPO:-iput-object/remobro}"
-REF="${REMOBRO_REF:-}"
+REPO="iput-object/remobro"
+VERSION="${REMOBRO_VERSION:-}"
+BIN_DIR="$HOME/.local/bin"
 XPI_DIR="$HOME/Downloads/remobro" # Flatpak browsers can read ~/Downloads
 ZEN_FLATPAK="app.zen_browser.zen"
+USER_PATH="$PATH"
 
 say() { printf '\033[1;35m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33mwarning:\033[0m %s\n' "$*" >&2; }
 die() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
-gh_ok() { have gh && gh auth status >/dev/null 2>&1; }
+
+asset_url() {
+  if [[ -n "$VERSION" ]]; then echo "https://github.com/$REPO/releases/download/$VERSION/$1"
+  else echo "https://github.com/$REPO/releases/latest/download/$1"; fi
+}
 
 # Directory of this script when run from a clone (empty when piped from curl).
 SRC=""
@@ -29,56 +34,43 @@ fi
 
 uninstall() {
   if have remobro; then remobro uninstall || true; fi
-  if have uv; then uv tool uninstall remobro 2>/dev/null || true; fi
+  if have uv; then uv tool uninstall remobro >/dev/null 2>&1 || true; fi
+  [[ -f "$BIN_DIR/remobro" && ! -L "$BIN_DIR/remobro" ]] && rm -f "$BIN_DIR/remobro"
   say "Removed. Remove the extension from the browser's add-ons page; data stays in ~/.local/share/remobro."
 }
 
-ensure_uv() {
-  if have uv; then return; fi
-  say "Installing uv (Python package manager)"
-  curl -LsSf https://astral.sh/uv/install.sh | sh
-  export PATH="$HOME/.local/bin:$PATH"
-  have uv || die "uv installed but not on PATH; open a new shell and re-run"
+# Release binary: no Python or uv needed. Returns 1 if there is none for this machine.
+install_binary() {
+  local arch
+  case "$(uname -m)" in
+    x86_64 | amd64) arch=x86_64 ;;
+    aarch64 | arm64) arch=aarch64 ;;
+    *) return 1 ;;
+  esac
+  local tmp
+  tmp="$(mktemp)"
+  say "Downloading remobro ${VERSION:-latest} (linux-$arch)"
+  curl -fsSL "$(asset_url "remobro-linux-$arch")" -o "$tmp" || { rm -f "$tmp"; return 1; }
+  chmod +x "$tmp"
+  "$tmp" --help >/dev/null || { rm -f "$tmp"; die "the downloaded binary does not run on this system"; }
+  if have uv; then uv tool uninstall remobro >/dev/null 2>&1 || true; fi # replace an older uv install
+  mkdir -p "$BIN_DIR"
+  mv -f "$tmp" "$BIN_DIR/remobro"
 }
 
-latest_tag() {
-  if gh_ok; then
-    gh release view -R "$REPO" --json tagName -q .tagName 2>/dev/null || true
-  else
-    curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null |
-      sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1
+# From source with uv (clones, or machines without a release binary).
+install_with_uv() {
+  if ! have uv; then
+    say "Installing uv (Python package manager)"
+    curl -LsSf https://astral.sh/uv/install.sh | sh
   fi
-}
-
-install_cli() {
+  export PATH="$BIN_DIR:$PATH"
   if [[ -n "$SRC" ]]; then
     say "Installing remobro from $SRC"
     uv tool install --force --reinstall --python 3.12 "$SRC"
   else
-    [[ -n "$REF" ]] || REF="$(latest_tag)"
-    local url="https://github.com/$REPO"
-    say "Installing remobro from $url${REF:+ @ $REF}"
-    if gh_ok; then gh auth setup-git >/dev/null 2>&1 || true; fi # private repos over https
-    uv tool install --force --python 3.12 "git+$url${REF:+@$REF}"
-  fi
-  export PATH="$HOME/.local/bin:$PATH"
-  have remobro || die "remobro not on PATH; run 'uv tool update-shell' and re-run"
-}
-
-# Fetch a release asset into $2; returns 1 when there is no such asset.
-fetch_asset() {
-  local name="$1" dest="$2"
-  if gh_ok; then
-    if [[ -n "$REF" ]]; then
-      gh release download "$REF" -R "$REPO" -p "$name" -O "$dest" --clobber 2>/dev/null
-    else
-      gh release download -R "$REPO" -p "$name" -O "$dest" --clobber 2>/dev/null
-    fi
-  else
-    local base="https://github.com/$REPO/releases"
-    local url="$base/latest/download/$name"
-    [[ -n "$REF" ]] && url="$base/download/$REF/$name"
-    curl -fsSL "$url" -o "$dest" 2>/dev/null
+    say "Installing remobro from source"
+    uv tool install --force --python 3.12 "git+https://github.com/$REPO${VERSION:+@$VERSION}"
   fi
 }
 
@@ -98,34 +90,35 @@ install_extension() {
   [[ "${REMOBRO_NO_EXTENSION:-}" == 1 ]] && return
   mkdir -p "$XPI_DIR"
   local xpi="$XPI_DIR/remobro.xpi"
-  if fetch_asset remobro.xpi "$xpi"; then
-    say "Extension downloaded: $xpi"
+  if curl -fsSL "$(asset_url remobro.xpi)" -o "$xpi"; then
     if open_in_browser "$xpi"; then
       say "Your browser is asking to add remobro: click Add."
     else
-      say "Install it: open $xpi in Zen/Firefox (or drag it onto the window)."
+      say "Install the extension: open $xpi in Zen/Firefox."
     fi
   else
-    warn "no signed extension in the release yet. For now load it temporarily:"
-    echo "    npx web-ext run -s extension --firefox=flatpak:$ZEN_FLATPAK   (from a clone)"
-    echo "    or about:debugging → This Zen → Load Temporary Add-on → extension/manifest.json"
+    warn "could not download the extension; get remobro.xpi from https://github.com/$REPO/releases"
   fi
 }
 
 main() {
   case "${1:-}" in
     --uninstall) uninstall; return ;;
-    -h | --help) sed -n '2,10p' "$0"; return ;;
+    -h | --help) sed -n '2,8p' "${BASH_SOURCE[0]:-$0}"; return ;;
     "") ;;
     *) die "unknown option $1 (try --help)" ;;
   esac
   [[ "$(uname -s)" == Linux ]] || die "the installer supports Linux only for now (needs systemd --user)"
   have curl || die "curl is required"
-  ensure_uv
-  install_cli
+
+  if [[ -n "$SRC" ]] || ! install_binary; then install_with_uv; fi
+  export PATH="$BIN_DIR:$PATH"
+  have remobro || die "remobro is not on PATH"
+
   say "Starting the bridge and registering MCP server 'remobro'"
   remobro install
   install_extension
+  case ":$USER_PATH:" in *":$BIN_DIR:"*) ;; *) warn "add $BIN_DIR to your PATH to use the remobro command" ;; esac
   say "Done. Ask Claude Code or Codex: \"use remobro to …\""
 }
 

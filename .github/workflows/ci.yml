@@ -35,5 +35,11 @@ jobs:
       - name: CLI smoke test
         run: uv run remobro --help
       - run: uv build
+      - name: Binary build + smoke test
+        run: |
+          uv run --with pyinstaller pyinstaller --onefile --name remobro --distpath bin \
+            --collect-submodules uvicorn --collect-submodules remobro --copy-metadata mcp \
+            src/remobro/__main__.py
+          bin/remobro --help
       - name: Installer syntax
         run: bash -n install.sh

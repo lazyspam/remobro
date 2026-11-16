@@ -27,8 +27,8 @@ def cmd_install(args: argparse.Namespace) -> None:
     """Run the daemon as a systemd user service and register the MCP server with Claude Code and Codex."""
     from .daemon import mcp_url
 
-    # the remobro executable running right now: a `uv tool` install, or a checkout's .venv
-    exe = Path(sys.argv[0]).absolute()
+    # the remobro executable running right now: the release binary, a `uv tool` install, or a checkout's .venv
+    exe = Path(sys.executable if getattr(sys, "frozen", False) else sys.argv[0]).absolute()
     SERVICE.parent.mkdir(parents=True, exist_ok=True)
     SERVICE.write_text(
         "[Unit]\nDescription=remobro: MCP bridge to your browser\n\n"

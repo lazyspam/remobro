@@ -12,3 +12,4 @@ wheels/
 # build output
 *.xpi
 .env
+*.spec

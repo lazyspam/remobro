@@ -4,10 +4,10 @@ version = "0.2.0"
 description = "Let any AI agent (Claude Code, Codex, Gemini CLI, LangChain) drive your real browser over MCP, token-efficiently."
 requires-python = ">=3.12"
 dependencies = [
-    "mcp>=1.30.0",
-    "uvicorn>=0.54.0",
-    "starlette>=1.10.0",
-    "websockets>=17.4",
+    "mcp>=1.30.0,<2",
+    "uvicorn>=0.54.0,<1",
+    "starlette>=1.10.0,<2",
+    "websockets>=17.4,<18",
 ]
 
 [project.optional-dependencies]
