@@ -1068,7 +1068,6 @@
         break;
       }
       case "press": {
-        const target = el || document.activeElement || document.body;
         if (el) await prep(el), el.focus?.({ preventScroll: true });
         const mods = { ctrlKey: !!s.ctrl, shiftKey: !!s.shift, altKey: !!s.alt, metaKey: !!s.meta };
         const times = Math.max(1, Math.min(200, s.repeat || 1));
