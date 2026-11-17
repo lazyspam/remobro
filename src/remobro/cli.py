@@ -23,6 +23,23 @@ def cmd_url(_: argparse.Namespace) -> None:
     print(mcp_url())
 
 
+def _register(client: str, cmd: list[str]) -> bool:
+    """Register the MCP server with one client. A broken client config must not abort the install."""
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True)
+    except OSError as e:
+        print(f"warning: could not register with {client}: {e}", file=sys.stderr)
+        return False
+    if r.returncode == 0:
+        return True
+    err = (r.stderr or r.stdout).strip()
+    print(f"warning: could not register with {client} (exit {r.returncode})", file=sys.stderr)
+    if err:
+        print("  " + err.replace("\n", "\n  "), file=sys.stderr)
+    print(f"  fix that, then run: {' '.join(cmd)}", file=sys.stderr)
+    return False
+
+
 def cmd_install(args: argparse.Namespace) -> None:
     """Run the daemon as a systemd user service and register the MCP server with Claude Code and Codex."""
     from .daemon import mcp_url
@@ -43,12 +60,12 @@ def cmd_install(args: argparse.Namespace) -> None:
     url = mcp_url()
     if shutil.which("claude") and "claude" in args.clients:
         subprocess.run(["claude", "mcp", "remove", "-s", "user", "remobro"], capture_output=True)
-        subprocess.run(["claude", "mcp", "add", "-s", "user", "--transport", "http", "remobro", url], check=True)
-        print("registered with Claude Code (user scope) as 'remobro'")
+        if _register("Claude Code (user scope)", ["claude", "mcp", "add", "-s", "user", "--transport", "http", "remobro", url]):
+            print("registered with Claude Code (user scope) as 'remobro'")
     if shutil.which("codex") and "codex" in args.clients:
         subprocess.run(["codex", "mcp", "remove", "remobro"], capture_output=True)
-        subprocess.run(["codex", "mcp", "add", "remobro", "--url", url], check=True)
-        print("registered with Codex as 'remobro'")
+        if _register("Codex", ["codex", "mcp", "add", "remobro", "--url", url]):
+            print("registered with Codex as 'remobro'")
     print("MCP URL (for other clients):", url)
 
 
