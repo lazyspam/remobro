@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # remobro installer: CLI + bridge service + MCP registration + browser extension.
 #
-#   curl -fsSL https://github.com/iput-object/remobro/releases/latest/download/install.sh | bash
+#   curl -fsSL https://github.com/lazyspam/remobro/releases/latest/download/install.sh | bash
 #   ./install.sh                 from a clone: installs this checkout (needs uv)
 #   ./install.sh --uninstall     removes service, MCP entries and the CLI (keeps your sessions/notes)
 #
 # Env: REMOBRO_VERSION (release tag, default: latest), REMOBRO_NO_EXTENSION=1 (skip the extension).
 set -euo pipefail
 
-REPO="iput-object/remobro"
+REPO="lazyspam/remobro"
 VERSION="${REMOBRO_VERSION:-}"
 BIN_DIR="$HOME/.local/bin"
 XPI_DIR="$HOME/Downloads/remobro" # extension files; Flatpak browsers can read ~/Downloads

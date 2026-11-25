@@ -8,7 +8,7 @@ Works with Zen, Firefox, Chrome, Brave, Edge and Chromium on Linux, several at o
 ## Install
 
 ```bash
-curl -fsSL https://github.com/iput-object/remobro/releases/latest/download/install.sh | bash
+curl -fsSL https://github.com/lazyspam/remobro/releases/latest/download/install.sh | bash
 ```
 
 Zen/Firefox: click **Add** when it asks. Chrome & co: the installer opens `chrome://extensions`;

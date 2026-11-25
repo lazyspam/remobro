@@ -24,7 +24,7 @@ import zipfile
 from importlib import metadata
 from pathlib import Path
 
-REPO = "iput-object/remobro"
+REPO = "lazyspam/remobro"
 CHROMIUM_EXT_DIR = Path.home() / "Downloads/remobro/chromium"  # where install.sh unpacks it
 SERVICE = Path.home() / ".config/systemd/user/remobro.service"
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "remobro"
