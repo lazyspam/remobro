@@ -3,6 +3,8 @@ name = "remobro"
 version = "0.2.0"
 description = "Let any AI agent (Claude Code, Codex, Gemini CLI, LangChain) drive your real browser over MCP, token-efficiently."
 requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
     "mcp>=1.30.0,<2",
     "uvicorn>=0.54.0,<1",

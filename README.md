@@ -79,3 +79,7 @@ git tag v0.3.0 && git push --tags                         # release + sign
 `extension/` is the browser side, `src/remobro/` the MCP bridge.
 
 GitHub Actions builds everything. Every push to `main` and every pull request runs CI, which lints the extension, builds the Firefox and Chromium zips (download them from the run's artifacts) and smoke-tests the CLI and binary. Pushing a `v*` tag builds, signs and publishes the release.
+
+## License
+
+[MIT](LICENSE)
