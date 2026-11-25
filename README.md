@@ -73,8 +73,9 @@ notice "You logged into a secure area!"
 ```bash
 uv sync
 npx web-ext run --firefox=flatpak:app.zen_browser.zen    # try the extension in Zen
-scripts/build-chromium.sh                                  # Chromium build → dist/chromium
 git tag v0.3.0 && git push --tags                         # release + sign
 ```
 
 `extension/` is the browser side, `src/remobro/` the MCP bridge.
+
+GitHub Actions builds everything. Every push to `main` and every pull request runs CI, which lints the extension, builds the Firefox and Chromium zips (download them from the run's artifacts) and smoke-tests the CLI and binary. Pushing a `v*` tag builds, signs and publishes the release.

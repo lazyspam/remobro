@@ -1,0 +1,30 @@
+name: Build extensions
+description: >-
+  Build the unsigned Firefox/Zen zip and the Chromium (Chrome, Brave, Edge) zip
+  from the shared source in extension/, into dist/.
+inputs:
+  version:
+    description: Version to stamp into both manifests. Empty keeps the one in extension/manifest.json.
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Build Firefox/Zen (unsigned)
+      shell: bash
+      run: npx --yes web-ext@8 build --source-dir extension --artifacts-dir dist --filename remobro-unsigned.zip --overwrite-dest
+
+    - name: Build Chromium (MV3)
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+      run: |
+        version="${VERSION:-$(jq -r .version extension/manifest.json)}"
+        rm -rf dist/chromium dist/remobro-chromium.zip
+        mkdir -p dist/chromium
+        cp -r extension/. dist/chromium/
+        rm dist/chromium/manifest.chromium.json dist/chromium/icons/icon.svg
+        jq --arg v "$version" '.version = $v' extension/manifest.chromium.json > dist/chromium/manifest.json
+        (cd dist/chromium && zip -qr ../remobro-chromium.zip .)
+        rm -rf dist/chromium
+        echo "Built dist/remobro-unsigned.zip and dist/remobro-chromium.zip (v$version)"

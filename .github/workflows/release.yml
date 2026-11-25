@@ -76,11 +76,9 @@ jobs:
           jq --arg v "$VERSION" '.version = $v' extension/manifest.chromium.json > m.json && mv m.json extension/manifest.chromium.json
           sed -i "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
 
-      - name: Build extensions
-        run: |
-          npx --yes web-ext@8 build --source-dir extension --artifacts-dir dist --filename remobro-unsigned.zip
-          scripts/build-chromium.sh "$VERSION"
-          rm -rf dist/chromium  # the zip is what ships
+      - uses: ./.github/actions/build-extensions
+        with:
+          version: ${{ env.VERSION }}
 
       - name: Sign extension (unlisted, self-distributed)
         if: env.AMO_JWT_ISSUER != ''
